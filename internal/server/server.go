@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ type Server struct {
 	mu             sync.RWMutex
 	stats          types.GatewayStats
 	upstreamHandler *handlers.UpstreamHandler
+	authHandler     *handlers.AuthHandler
 	logger         zerolog.Logger
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -65,6 +67,7 @@ func (s *Server) Shutdown() error {
 // New creates a new MCP gateway server instance
 func New(cfg *config.Config, db *database.DB) *Server {
 	upstreamHandler := handlers.NewUpstreamHandler(db)
+	authHandler := handlers.NewAuthHandler(db)
 	ctx, cancel := context.WithCancel(context.Background())
 	
 	return &Server{
@@ -82,6 +85,7 @@ func New(cfg *config.Config, db *database.DB) *Server {
 		clients:         make(map[string]*client.MCPClient),
 		clientsByID:     make(map[int64]*client.MCPClient),
 		upstreamHandler: upstreamHandler,
+		authHandler:     authHandler,
 		logger:          logger.GetLogger("server"),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -92,32 +96,58 @@ func New(cfg *config.Config, db *database.DB) *Server {
 func (s *Server) Router() http.Handler {
 	r := mux.NewRouter()
 	
-	// SSE endpoint for MCP communication (VS Code uses this)
-	r.HandleFunc("/", s.handleSSE).Methods("GET", "POST")
-	
-	// WebSocket endpoint for MCP communication
-	r.HandleFunc("/mcp", s.handleWebSocket)
-	
-	// HTTP endpoints for MCP over HTTP
-	r.HandleFunc("/mcp/http", s.handleHTTP).Methods("POST")
-	
-	// Health check endpoint
-	r.HandleFunc("/health", s.handleHealth).Methods("GET")
-	
-	// Info endpoint
-	r.HandleFunc("/info", s.handleInfo).Methods("GET")
-	
-	// Admin panel
+	// Register authentication routes first (includes public login endpoint)
+	s.authHandler.RegisterRoutes(r)
+
+	// Apply authentication middleware to MCP endpoints if auth is enabled
+	if s.config.Security.EnableAuth {		
+		// Protected MCP endpoints
+		mcpRouter := r.NewRoute().Subrouter()
+		mcpRouter.Use(s.authHandler.AuthMiddleware)
+		
+		// SSE endpoint for MCP communication (VS Code uses this)
+		mcpRouter.HandleFunc("/", s.handleSSE).Methods("GET", "POST")
+		
+		// WebSocket endpoint for MCP communication
+		mcpRouter.HandleFunc("/mcp", s.handleWebSocket)
+		
+		// HTTP endpoints for MCP over HTTP
+		mcpRouter.HandleFunc("/mcp/http", s.handleHTTP).Methods("POST")
+		
+		// Gateway-specific endpoints
+		mcpRouter.HandleFunc("/gateway/status", s.handleGatewayStatus).Methods("GET")
+		mcpRouter.HandleFunc("/gateway/upstream", s.handleUpstreamServers).Methods("GET")
+		mcpRouter.HandleFunc("/gateway/stats", s.handleGatewayStats).Methods("GET")
+		mcpRouter.HandleFunc("/gateway/refresh", s.handleRefreshConnections).Methods("POST")
+		
+		// Register CRUD API routes with auth
+		s.upstreamHandler.RegisterRoutes(mcpRouter)
+	} else {
+		// Unprotected endpoints when auth is disabled
+		// SSE endpoint for MCP communication (VS Code uses this)
+		r.HandleFunc("/", s.handleSSE).Methods("GET", "POST")
+		
+		// WebSocket endpoint for MCP communication
+		r.HandleFunc("/mcp", s.handleWebSocket)
+		
+		// HTTP endpoints for MCP over HTTP
+		r.HandleFunc("/mcp/http", s.handleHTTP).Methods("POST")
+		
+		// Gateway-specific endpoints
+		r.HandleFunc("/gateway/status", s.handleGatewayStatus).Methods("GET")
+		r.HandleFunc("/gateway/upstream", s.handleUpstreamServers).Methods("GET")
+		r.HandleFunc("/gateway/stats", s.handleGatewayStats).Methods("GET")
+		r.HandleFunc("/gateway/refresh", s.handleRefreshConnections).Methods("POST")
+		
+		// Register CRUD API routes without auth
+		s.upstreamHandler.RegisterRoutes(r)
+	}
+
 	r.HandleFunc("/admin", s.handleAdminPanel).Methods("GET")
-	
-	// Gateway-specific endpoints
-	r.HandleFunc("/gateway/status", s.handleGatewayStatus).Methods("GET")
-	r.HandleFunc("/gateway/upstream", s.handleUpstreamServers).Methods("GET")
-	r.HandleFunc("/gateway/stats", s.handleGatewayStats).Methods("GET")
-	r.HandleFunc("/gateway/refresh", s.handleRefreshConnections).Methods("POST")
-	
-	// Register CRUD API routes
-	s.upstreamHandler.RegisterRoutes(r)
+	r.HandleFunc("/health", s.handleHealth).Methods("GET")
+	r.HandleFunc("/info", s.handleInfo).Methods("GET")
+	// Static file serving for CSS and JS files
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("web/"))))
 	
 	return r
 }
@@ -469,70 +499,26 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminPanel serves the admin panel HTML
 func (s *Server) handleAdminPanel(w http.ResponseWriter, r *http.Request) {
-	// Read the admin panel HTML file
-	// For simplicity, we'll embed it directly here, but in production you might want to use embed.FS
-	html := `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MCP Gateway - Admin Panel</title>
-    <style>/* CSS content from admin.html would go here */</style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>MCP Gateway Admin Panel</h1>
-            <p>Manage your Model Context Protocol upstream servers</p>
-            <p><a href="/info" target="_blank">Gateway Info</a> | <a href="/gateway/status" target="_blank">Status API</a></p>
-        </div>
-        <div class="message">
-            <h2>Admin Panel Coming Soon</h2>
-            <p>Use the REST API endpoints to manage upstream servers:</p>
-            <ul>
-                <li><strong>GET /api/upstream-servers</strong> - List all servers</li>
-                <li><strong>POST /api/upstream-servers</strong> - Create a new server</li>
-                <li><strong>GET /api/upstream-servers/{id}</strong> - Get server details</li>
-                <li><strong>PUT /api/upstream-servers/{id}</strong> - Update server</li>
-                <li><strong>DELETE /api/upstream-servers/{id}</strong> - Delete server</li>
-                <li><strong>POST /api/upstream-servers/{id}/toggle</strong> - Enable/disable server</li>
-                <li><strong>POST /gateway/refresh</strong> - Refresh connections</li>
-            </ul>
-            <h3>Example: Create a new server</h3>
-            <pre>
-POST /api/upstream-servers
-Content-Type: application/json
+	// Always serve the same HTML file but inject auth configuration
+	adminFile := "web/admin.html"
 
-{
-  "name": "test-server",
-  "url": "ws://localhost:8081/mcp",
-  "type": "websocket",
-  "enabled": true,
-  "prefix": "test",
-  "timeout": "30s",
-  "description": "Test MCP server"
-}
-            </pre>
-        </div>
-    </div>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f7; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .header { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.07); margin-bottom: 30px; }
-        .header h1 { color: #007AFF; margin-bottom: 10px; }
-        .message { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.07); }
-        pre { background: #f8f8f8; padding: 15px; border-radius: 8px; overflow-x: auto; }
-        ul { margin: 20px 0; }
-        li { margin: 5px 0; }
-        a { color: #007AFF; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-    </style>
-</body>
-</html>`
+	// Try to read the admin panel HTML file
+	content, err := os.ReadFile(adminFile)
+	if err != nil {
+		s.logger.Error().Err(err).Str("file", adminFile).Msg("Failed to read admin panel file")
+		http.Error(w, "Admin panel not available", http.StatusInternalServerError)
+		return
+	}
+
+	// Inject auth configuration into the HTML
+	contentStr := string(content)
+	authConfig := fmt.Sprintf(`<script>window.AUTH_ENABLED = %t;</script>`, s.config.Security.EnableAuth)
 	
+	// Insert the auth configuration script before the closing </head> tag
+	contentStr = strings.Replace(contentStr, "</head>", authConfig+"\n</head>", 1)
+
 	w.Header().Set("Content-Type", "text/html")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(html))
+	w.Write([]byte(contentStr))
 }
 
 // initializeFromConfig initializes tools and resources from configuration
@@ -815,12 +801,22 @@ func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 	upstreams := make([]map[string]interface{}, 0)
 	
 	for name, mcpClient := range s.clients {
+		tools := mcpClient.GetTools()
+		toolDetails := make([]map[string]interface{}, 0, len(tools))
+		for toolName, tool := range tools {
+			toolDetails = append(toolDetails, map[string]interface{}{
+				"name":        toolName,
+				"description": tool.Description,
+			})
+		}
+		
 		upstream := map[string]interface{}{
-			"name":      name,
-			"connected": mcpClient.IsConnected(),
-			"tools":     len(mcpClient.GetTools()),
-			"resources": len(mcpClient.GetResources()),
-			"prompts":   len(mcpClient.GetPrompts()),
+			"name":         name,
+			"connected":    mcpClient.IsConnected(),
+			"tools":        len(tools),
+			"tool_details": toolDetails,
+			"resources":    len(mcpClient.GetResources()),
+			"prompts":      len(mcpClient.GetPrompts()),
 		}
 		upstreams = append(upstreams, upstream)
 	}

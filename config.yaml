@@ -10,38 +10,6 @@ mcp:
   name: "mcp-gateway"
   description: "MCP Remote Server Gateway"
   
-  # Local tools configuration (optional - gateway can also serve local tools)
-  tools:
-    - name: "echo"
-      description: "Echo back the provided text"
-      input_schema:
-        type: "object"
-        properties:
-          text:
-            type: "string"
-            description: "Text to echo back"
-        required: ["text"]
-    
-    - name: "get_time"
-      description: "Get current time"
-      input_schema:
-        type: "object"
-        properties: {}
-  
-  # Local resources configuration (optional)
-  resources:
-    - uri: "file://example.txt"
-      name: "Example File"
-      description: "An example text file"
-      mime_type: "text/plain"
-    
-    - uri: "data://config"
-      name: "Configuration"
-      description: "Server configuration data"
-      mime_type: "application/json"
-  
-
-  
   capabilities:
     tools:
       list_changed: false
@@ -63,7 +31,7 @@ gateway:
   # Use the /api/upstream-servers endpoints to manage upstream MCP servers
 
 security:
-  enable_auth: false
+  enable_auth: true
   api_keys: []
   allowed_ips: []
 

@@ -125,7 +125,7 @@ func Load(configPath string) (*Config, error) {
 			HealthCheckInterval: "60s",
 		},
 		Security: SecurityConfig{
-			EnableAuth: false,
+			EnableAuth: true,
 			APIKeys:    []string{},
 			AllowedIPs: []string{},
 		},
