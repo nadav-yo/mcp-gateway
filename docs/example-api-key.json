@@ -1,0 +1,12 @@
+{
+  "name": "api-key-server",
+  "url": "https://api.example.com/mcp",
+  "type": "http",
+  "description": "MCP server with API key authentication",
+  "enabled": true,
+  "auth": {
+    "type": "api-key",
+    "api_key": "your-api-key-here",
+    "header_name": "X-API-Key"
+  }
+}

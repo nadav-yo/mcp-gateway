@@ -1,0 +1,12 @@
+{
+  "name": "basic-auth-server",
+  "url": "https://api.example.com/mcp",
+  "type": "http",
+  "description": "MCP server with basic authentication",
+  "enabled": true,
+  "auth": {
+    "type": "basic",
+    "username": "your-username",
+    "password": "your-password"
+  }
+}

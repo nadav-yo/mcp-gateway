@@ -1,0 +1,13 @@
+{
+  "name": "authenticated-server",
+  "url": "https://api.example.com/mcp",
+  "type": "http",
+  "description": "MCP server with bearer token authentication",
+  "enabled": true,
+  "prefix": "auth",
+  "timeout": "30s",
+  "auth": {
+    "type": "bearer",
+    "bearer_token": "your-secret-bearer-token-here"
+  }
+}
