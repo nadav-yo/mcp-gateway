@@ -7,6 +7,8 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +41,7 @@ type Server struct {
 	logger         zerolog.Logger
 	ctx            context.Context
 	cancel         context.CancelFunc
+	startTime      time.Time
 }
 
 	
@@ -87,6 +90,7 @@ func New(cfg *config.Config, db *database.DB) *Server {
 		logger:      logger.GetLogger("server"),
 		ctx:         ctx,
 		cancel:      cancel,
+		startTime:   time.Now(),
 	}
 	
 	// Create upstream handler with server reference
@@ -98,6 +102,10 @@ func New(cfg *config.Config, db *database.DB) *Server {
 // Router returns the HTTP router
 func (s *Server) Router() http.Handler {
 	r := mux.NewRouter()
+	
+	// Add request logging middleware to all routes
+	requestLogger := logger.NewRequestLogger()
+	r.Use(requestLogger.Middleware)
 	
 	// Register authentication routes first (includes public login endpoint)
 	s.authHandler.RegisterRoutes(r)
@@ -123,6 +131,9 @@ func (s *Server) Router() http.Handler {
 		mcpRouter.HandleFunc("/gateway/stats", s.handleGatewayStats).Methods("GET")
 		mcpRouter.HandleFunc("/gateway/refresh", s.handleRefreshConnections).Methods("POST")
 		
+		// Log endpoints
+		mcpRouter.HandleFunc("/api/logs/{filename}", s.handleGenericLog).Methods("GET")
+		
 		// Register CRUD API routes with auth
 		s.upstreamHandler.RegisterRoutes(mcpRouter)
 	} else {
@@ -141,6 +152,9 @@ func (s *Server) Router() http.Handler {
 		r.HandleFunc("/gateway/upstream", s.handleUpstreamServers).Methods("GET")
 		r.HandleFunc("/gateway/stats", s.handleGatewayStats).Methods("GET")
 		r.HandleFunc("/gateway/refresh", s.handleRefreshConnections).Methods("POST")
+		
+		// Log endpoints
+		r.HandleFunc("/api/logs/{filename}", s.handleGenericLog).Methods("GET")
 		
 		// Register CRUD API routes without auth
 		s.upstreamHandler.RegisterRoutes(r)
@@ -629,13 +643,16 @@ func (s *Server) connectToUpstreamServers() {
 			s.db.UpdateUpstreamServerStatus(serverRecord.ID, "starting")
 		}
 		
-		mcpClient := client.NewMCPClient(upstream)
+		mcpClient := client.NewMCPClientWithID(upstream, serverRecord.ID)
 		
 		if err := mcpClient.Connect(); err != nil {
-			s.logger.Error().
-				Err(err).
-				Str("upstream", upstream.Name).
-				Msg("Failed to connect to upstream server")
+			// Log to server-specific log file
+			logger.GetServerLogger().LogServerEvent(serverRecord.ID, "error", "Failed to connect to upstream server", map[string]interface{}{
+				"error": err.Error(),
+				"upstream": upstream.Name,
+				"type": upstream.Type,
+			})
+			
 			// Update status in database
 			s.db.UpdateUpstreamServerStatus(serverRecord.ID, "error")
 			continue
@@ -662,7 +679,11 @@ func (s *Server) connectToUpstreamServers() {
 			s.prompts[name] = prompt
 		}
 
-		s.logger.Info().Str("upstream", upstream.Name).Msg("Successfully connected to upstream server")
+		// Log successful connection to server-specific log file
+		logger.GetServerLogger().LogServerEvent(serverRecord.ID, "info", "Successfully connected to upstream server", map[string]interface{}{
+			"upstream": upstream.Name,
+			"type": upstream.Type,
+		})
 	}
 
 	// Update stats
@@ -688,18 +709,25 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 	defer s.mu.Unlock()
 	
 	// Set status to "starting" for stdio servers since they take time to initialize
-	s.logger.Info().Str("upstream", upstream.Name).Str("type", upstream.Type).Msg("Connecting to upstream server")
+	// Log connection attempt to server-specific log file
+	logger.GetServerLogger().LogServerEvent(serverRecord.ID, "info", "Connecting to upstream server", map[string]interface{}{
+		"upstream": upstream.Name,
+		"type": upstream.Type,
+	})
 	if upstream.Type == "stdio" {
 		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "starting")
 	}
 	
-	mcpClient := client.NewMCPClient(upstream)
+	mcpClient := client.NewMCPClientWithID(upstream, serverRecord.ID)
 	
 	if err := mcpClient.Connect(); err != nil {
-		s.logger.Error().
-			Err(err).
-			Str("upstream", upstream.Name).
-			Msg("Failed to connect to upstream server")
+		// Log to server-specific log file
+		logger.GetServerLogger().LogServerEvent(serverRecord.ID, "error", "Failed to connect to upstream server", map[string]interface{}{
+			"error": err.Error(),
+			"upstream": upstream.Name,
+			"type": upstream.Type,
+		})
+		
 		// Update status in database
 		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "error")
 		return fmt.Errorf("failed to connect: %w", err)
@@ -734,7 +762,11 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 		s.prompts[name] = prompt
 	}
 
-	s.logger.Info().Str("upstream", upstream.Name).Msg("Successfully connected to upstream server")
+	// Log successful connection to server-specific log file
+	logger.GetServerLogger().LogServerEvent(serverRecord.ID, "info", "Successfully connected to upstream server", map[string]interface{}{
+		"upstream": upstream.Name,
+		"type": upstream.Type,
+	})
 	
 	// Update stats
 	s.updateStats()
@@ -798,15 +830,15 @@ func (s *Server) DisconnectUpstreamServer(serverID int64) error {
 	if err := client.Close(); err != nil {
 		// Don't log normal process exit codes as errors
 		if err.Error() != "exit status 1" && err.Error() != "exit status 0" {
-			s.logger.Error().
-				Err(err).
-				Int64("server_id", serverID).
-				Msg("Error closing connection to upstream server")
+			// Log to server-specific log file
+			logger.GetServerLogger().LogServerEvent(serverID, "error", "Error closing connection to upstream server", map[string]interface{}{
+				"error": err.Error(),
+			})
 		} else {
-			s.logger.Debug().
-				Err(err).
-				Int64("server_id", serverID).
-				Msg("Upstream server process exited")
+			// Log to server-specific log file
+			logger.GetServerLogger().LogServerEvent(serverID, "debug", "Upstream server process exited", map[string]interface{}{
+				"error": err.Error(),
+			})
 		}
 	}
 	
@@ -851,7 +883,10 @@ func (s *Server) DisconnectUpstreamServer(serverID int64) error {
 	// Update stats
 	s.updateStats()
 	
-	s.logger.Info().Int64("server_id", serverID).Msg("Disconnected upstream server")
+	// Log disconnection to server-specific log file
+	logger.GetServerLogger().LogServerEvent(serverID, "info", "Disconnected upstream server", map[string]interface{}{
+		"server_id": serverID,
+	})
 	return nil
 }
 
@@ -937,13 +972,78 @@ func (s *Server) updateStats() {
 		totalServers = len(servers)
 	}
 
+	// Get additional statistics from database
+	dbStats, err := s.db.GetStatistics()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to get database statistics")
+		dbStats = make(map[string]interface{})
+	}
+
+	// Calculate uptime
+	uptime := time.Since(s.startTime)
+	uptimeStr := formatDuration(uptime)
+
 	s.stats = types.GatewayStats{
 		UpstreamServers:   totalServers,
 		ConnectedServers:  connectedServers,
 		TotalTools:        len(s.tools),
 		TotalResources:    len(s.resources),
 		RequestsProcessed: s.stats.RequestsProcessed, // Keep the existing count
+		
+		// Additional statistics
+		ActiveTokens:       getIntFromStats(dbStats, "active_tokens"),
+		TotalUsers:         getIntFromStats(dbStats, "total_users"),
+		ServersByStatus:    getMapFromStats(dbStats, "servers_by_status"),
+		ServersByType:      getMapFromStats(dbStats, "servers_by_type"),
+		AuthMethodsCount:   getMapFromStats(dbStats, "auth_methods_count"),
+		SystemUptime:       uptimeStr,
+		LastDatabaseUpdate: getStringFromStats(dbStats, "last_database_update"),
 	}
+}
+
+// Helper functions for extracting data from database statistics
+func getIntFromStats(stats map[string]interface{}, key string) int {
+	if val, ok := stats[key]; ok {
+		if intVal, ok := val.(int); ok {
+			return intVal
+		}
+	}
+	return 0
+}
+
+func getMapFromStats(stats map[string]interface{}, key string) map[string]int {
+	if val, ok := stats[key]; ok {
+		if mapVal, ok := val.(map[string]int); ok {
+			return mapVal
+		}
+	}
+	return make(map[string]int)
+}
+
+func getStringFromStats(stats map[string]interface{}, key string) string {
+	if val, ok := stats[key]; ok {
+		if strVal, ok := val.(string); ok {
+			return strVal
+		}
+	}
+	return ""
+}
+
+// formatDuration formats a duration into a human-readable string
+func formatDuration(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+	seconds := int(d.Seconds()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm %ds", days, hours, minutes, seconds)
+	} else if hours > 0 {
+		return fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds)
+	} else if minutes > 0 {
+		return fmt.Sprintf("%dm %ds", minutes, seconds)
+	}
+	return fmt.Sprintf("%ds", seconds)
 }
 
 // handleGatewayStatus handles gateway status requests
@@ -1010,6 +1110,78 @@ func (s *Server) handleGatewayStats(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 	
 	json.NewEncoder(w).Encode(stats)
+}
+
+// handleGenericLog handles requests for generic log files
+func (s *Server) handleGenericLog(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	filename := vars["filename"]
+	
+	// Security: only allow specific log files
+	allowedLogs := map[string]bool{
+		"request.log": true,
+	}
+	
+	if !allowedLogs[filename] {
+		http.Error(w, "Log file not found", http.StatusNotFound)
+		return
+	}
+	
+	logPath := filepath.Join("logs", filename)
+	
+	// Check if download is requested
+	if r.URL.Query().Get("download") == "true" {
+		// Serve file for download
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+		w.Header().Set("Content-Type", "application/octet-stream")
+		http.ServeFile(w, r, logPath)
+		return
+	}
+	
+	// Read log content
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// File doesn't exist, return empty content
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": true,
+				"data": map[string]interface{}{
+					"content": "",
+				},
+			})
+			return
+		}
+		s.logger.Error().Err(err).Str("filename", filename).Msg("Failed to read log file")
+		http.Error(w, "Failed to read log file", http.StatusInternalServerError)
+		return
+	}
+	
+	contentStr := string(content)
+	
+	// Handle tail option
+	if r.URL.Query().Get("tail") == "true" {
+		lines := strings.Split(contentStr, "\n")
+		lineCount := 100 // default
+		if linesParam := r.URL.Query().Get("lines"); linesParam != "" {
+			if parsed, err := strconv.Atoi(linesParam); err == nil && parsed > 0 {
+				lineCount = parsed
+			}
+		}
+		
+		if len(lines) > lineCount {
+			lines = lines[len(lines)-lineCount:]
+		}
+		contentStr = strings.Join(lines, "\n")
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"content": contentStr,
+		},
+	})
 }
 
 // Start starts the gateway server (optional method for initialization)

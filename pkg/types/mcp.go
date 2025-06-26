@@ -233,4 +233,13 @@ type GatewayStats struct {
 	TotalTools        int `json:"total_tools"`
 	TotalResources    int `json:"total_resources"`
 	RequestsProcessed int `json:"requests_processed"`
+
+	// Additional statistics
+	ActiveTokens      int            `json:"active_tokens"`
+	TotalUsers        int            `json:"total_users"`
+	ServersByStatus   map[string]int `json:"servers_by_status"`
+	ServersByType     map[string]int `json:"servers_by_type"`
+	AuthMethodsCount  map[string]int `json:"auth_methods_count"`
+	SystemUptime      string         `json:"system_uptime"`
+	LastDatabaseUpdate string        `json:"last_database_update"`
 }

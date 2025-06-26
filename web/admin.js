@@ -10,10 +10,18 @@ class AdminPanel {
         
         // Auto-refresh configuration
         this.autoRefreshEnabled = true;
-        this.autoRefreshInterval = 3000; // 3 seconds
+        this.autoRefreshInterval = 5000; // 5 seconds
         this.autoRefreshTimer = null;
         this.lastRefreshTime = 0;
         this.isRefreshing = false;
+        
+        // Cache for preventing unnecessary DOM updates
+        this.lastStatsData = null;
+        this.lastServersData = null;
+        this.lastStatsTabData = null;
+        
+        // Loading indicator state
+        this.refreshIndicatorTimeout = null;
         
         if (this.authEnabled) {
             this.token = localStorage.getItem('mcp_token');
@@ -175,6 +183,11 @@ class AdminPanel {
             content.classList.add('hidden');
         });
         
+        // Stop logs auto-refresh when leaving logs tab
+        if (tabName !== 'logs') {
+            stopLogsAutoRefresh();
+        }
+        
         // Show the appropriate tab content
         switch(tabName) {
             case 'tokens':
@@ -187,6 +200,11 @@ class AdminPanel {
                 document.getElementById('statsTab').classList.remove('hidden');
                 // Load stats when switching to stats tab
                 this.loadStatsForTab();
+                break;
+            case 'logs':
+                document.getElementById('logsTab').classList.remove('hidden');
+                // Load logs when switching to logs tab
+                loadServerLogs();
                 break;
         }
     }
@@ -430,17 +448,36 @@ class AdminPanel {
         }
     }
 
+    // Cache management
+    clearDataCache() {
+        this.lastStatsData = null;
+        this.lastServersData = null;
+        this.lastStatsTabData = null;
+    }
+
     // Common methods for server management
     async loadStats() {
         try {
             const response = await this.makeAuthenticatedRequest('/gateway/stats');
             const stats = await response.json();
             
-            // Update server management tab stats
-            document.getElementById('totalServers').textContent = stats.upstream_servers || 0;
-            document.getElementById('connectedServers').textContent = stats.connected_servers || 0;
-            document.getElementById('totalTools').textContent = stats.total_tools || 0;
-            document.getElementById('totalResources').textContent = stats.total_resources || 0;
+            // Only update DOM if data has changed
+            const statsKey = JSON.stringify({
+                upstream_servers: stats.upstream_servers || 0,
+                connected_servers: stats.connected_servers || 0,
+                total_tools: stats.total_tools || 0,
+                total_resources: stats.total_resources || 0
+            });
+            
+            if (this.lastStatsData !== statsKey) {
+                // Update server management tab stats
+                document.getElementById('totalServers').textContent = stats.upstream_servers || 0;
+                document.getElementById('connectedServers').textContent = stats.connected_servers || 0;
+                document.getElementById('totalTools').textContent = stats.total_tools || 0;
+                document.getElementById('totalResources').textContent = stats.total_resources || 0;
+                
+                this.lastStatsData = statsKey;
+            }
         } catch (error) {
             console.error('Error loading stats:', error);
         }
@@ -456,16 +493,51 @@ class AdminPanel {
             const stats = await statsResponse.json();
             const info = await infoResponse.json();
             
-            // Update statistics tab stats
-            document.getElementById('totalServersStats').textContent = stats.upstream_servers || 0;
-            document.getElementById('connectedServersStats').textContent = stats.connected_servers || 0;
-            document.getElementById('totalToolsStats').textContent = stats.total_tools || 0;
-            document.getElementById('totalResourcesStats').textContent = stats.total_resources || 0;
-            document.getElementById('requestsProcessedStats').textContent = stats.requests_processed || 0;
+            // Only update DOM if data has changed
+            const statsTabKey = JSON.stringify({
+                upstream_servers: stats.upstream_servers || 0,
+                connected_servers: stats.connected_servers || 0,
+                total_tools: stats.total_tools || 0,
+                total_resources: stats.total_resources || 0,
+                requests_processed: stats.requests_processed || 0,
+                active_tokens: stats.active_tokens || 0,
+                total_users: stats.total_users || 0,
+                servers_by_status: stats.servers_by_status || {},
+                servers_by_type: stats.servers_by_type || {},
+                auth_methods_count: stats.auth_methods_count || {},
+                system_uptime: stats.system_uptime || '',
+                last_database_update: stats.last_database_update || '',
+                name: info.name || 'MCP Gateway',
+                version: info.version || '1.0.0'
+            });
             
-            // Update gateway information
-            document.getElementById('gatewayName').textContent = info.name || 'MCP Gateway';
-            document.getElementById('gatewayVersion').textContent = info.version || '1.0.0';
+            if (this.lastStatsTabData !== statsTabKey) {
+                // Update core statistics
+                document.getElementById('totalServersStats').textContent = stats.upstream_servers || 0;
+                document.getElementById('connectedServersStats').textContent = stats.connected_servers || 0;
+                document.getElementById('totalToolsStats').textContent = stats.total_tools || 0;
+                document.getElementById('totalResourcesStats').textContent = stats.total_resources || 0;
+                document.getElementById('requestsProcessedStats').textContent = stats.requests_processed || 0;
+                
+                // Update user & security statistics
+                document.getElementById('activeTokensStats').textContent = stats.active_tokens || 0;
+                document.getElementById('totalUsersStats').textContent = stats.total_users || 0;
+                
+                // Update dynamic status charts
+                this.updateStatusChart('serverStatusStats', stats.servers_by_status || {});
+                this.updateStatusChart('serverTypeStats', stats.servers_by_type || {});
+                this.updateStatusChart('authMethodsStats', stats.auth_methods_count || {});
+                
+                // Update gateway information
+                document.getElementById('gatewayName').textContent = info.name || 'MCP Gateway';
+                document.getElementById('gatewayVersion').textContent = info.version || '1.0.0';
+                document.getElementById('systemUptime').textContent = stats.system_uptime || '-';
+                document.getElementById('lastDatabaseUpdate').textContent = this.formatTimestamp(stats.last_database_update) || 'Never';
+                
+                this.lastStatsTabData = statsTabKey;
+            }
+            
+            // Always update timestamp
             document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
             
             // Update last refresh time for stats tab
@@ -515,7 +587,21 @@ class AdminPanel {
                     server.runtime_connected = toolsInfo.connected;
                 });
                 
-                this.renderServers(servers);
+                // Only update DOM if data has changed
+                const serversKey = JSON.stringify(servers.map(s => ({
+                    id: s.id,
+                    name: s.name,
+                    status: s.status,
+                    enabled: s.enabled,
+                    runtime_connected: s.runtime_connected,
+                    tool_details_count: s.tool_details?.length || 0
+                })));
+                
+                if (this.lastServersData !== serversKey) {
+                    this.renderServers(servers);
+                    this.lastServersData = serversKey;
+                }
+                
                 document.getElementById('serverCount').textContent = `${serversResult.data.count || 0} servers`;
                 
                 // Update last refresh time
@@ -592,6 +678,7 @@ class AdminPanel {
                         <div class="server-info">
                             <div class="server-name">${this.escapeHtml(server.name)}</div>
                             <div class="server-url">${this.escapeHtml(displayUrl)}</div>
+                            ${server.description ? `<div class="server-description">${this.escapeHtml(server.description)}</div>` : ''}
                             <div class="server-meta">
                                 <span class="server-status status-${displayStatus}">
                                     ${displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1)}
@@ -599,7 +686,6 @@ class AdminPanel {
                                 <span>Type: ${server.type}</span>
                                 ${server.prefix ? `<span>Prefix: ${this.escapeHtml(server.prefix)}</span>` : ''}
                                 ${authInfo}
-                                <span>Enabled: ${server.enabled ? 'Yes' : 'No'}</span>
                             </div>
                         </div>
                         <div class="server-actions">
@@ -608,6 +694,7 @@ class AdminPanel {
                                     onclick="adminPanel.toggleServer(${server.id})">
                                 ${server.enabled ? 'Disable' : 'Enable'}
                             </button>
+                            <button class="btn btn-sm btn-secondary" onclick="adminPanel.viewServerLogs(${server.id}, '${this.escapeHtml(server.name)}')">View Logs</button>
                             <button class="btn btn-sm btn-danger" onclick="adminPanel.deleteServer(${server.id})">Delete</button>
                         </div>
                     </div>
@@ -714,6 +801,7 @@ class AdminPanel {
             const result = await response.json();
             
             if (result.success) {
+                this.clearDataCache(); // Clear cache to force UI update
                 await this.loadServers();
                 await this.loadStats();
             } else {
@@ -733,6 +821,7 @@ class AdminPanel {
                 const result = await response.json();
                 
                 if (result.success) {
+                    this.clearDataCache(); // Clear cache to force UI update
                     await this.loadServers();
                     await this.loadStats();
                 } else {
@@ -741,6 +830,62 @@ class AdminPanel {
             } catch (error) {
                 alert('Error deleting server: ' + error.message);
             }
+        }
+    }
+
+    // Helper method to update status charts (creates visual representations of data distributions)
+    updateStatusChart(containerId, data) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        // If no data, show "No data" message
+        if (!data || Object.keys(data).length === 0) {
+            container.innerHTML = '<div class="stat-card"><div class="stat-number">-</div><div class="stat-label">No Data</div></div>';
+            return;
+        }
+        
+        // Create stat cards for each item in the data
+        for (const [key, value] of Object.entries(data)) {
+            const card = document.createElement('div');
+            card.className = 'stat-card';
+            
+            const number = document.createElement('div');
+            number.className = 'stat-number';
+            number.textContent = value;
+            
+            const label = document.createElement('div');
+            label.className = 'stat-label';
+            label.textContent = this.formatLabel(key);
+            
+            card.appendChild(number);
+            card.appendChild(label);
+            container.appendChild(card);
+        }
+    }
+    
+    // Helper method to format labels for better readability
+    formatLabel(key) {
+        return key.split('_')
+                 .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                 .join(' ');
+    }
+    
+    // Helper method to format timestamps
+    formatTimestamp(timestamp) {
+        if (!timestamp || timestamp === 'Never') {
+            return 'Never';
+        }
+        
+        try {
+            const date = new Date(timestamp);
+            if (isNaN(date.getTime())) {
+                return timestamp; // Return as-is if can't parse
+            }
+            return date.toLocaleString();
+        } catch (error) {
+            return timestamp; // Return as-is if error
         }
     }
 
@@ -770,6 +915,25 @@ class AdminPanel {
         return div.innerHTML;
     }
 
+    viewServerLogs(serverId, serverName) {
+        // Switch to logs tab
+        this.switchTab('logs');
+        
+        // Wait a moment for the tab to load, then select the server log
+        setTimeout(() => {
+            loadServerLogs().then(() => {
+                // Find and click the log item for this server
+                const logItems = document.querySelectorAll('.log-item');
+                logItems.forEach(item => {
+                    const nameElement = item.querySelector('.log-item-name');
+                    if (nameElement && nameElement.textContent === serverName) {
+                        item.click();
+                    }
+                });
+            });
+        }, 100);
+    }
+
     updateLastRefreshTime() {
         const lastUpdateElement = document.getElementById('lastUpdateTime');
         if (lastUpdateElement) {
@@ -782,9 +946,25 @@ class AdminPanel {
     
     showRefreshingIndicator(show) {
         const lastUpdateElement = document.getElementById('lastUpdateTime');
-        if (lastUpdateElement && show) {
-            lastUpdateElement.textContent = 'Updating...';
-            lastUpdateElement.style.color = '#007AFF';
+        
+        if (show) {
+            // Only show indicator after a brief delay to avoid flashing
+            this.refreshIndicatorTimeout = setTimeout(() => {
+                if (lastUpdateElement) {
+                    lastUpdateElement.textContent = 'Updating...';
+                    lastUpdateElement.style.color = '#007AFF';
+                }
+            }, 200); // 200ms delay
+        } else {
+            // Clear the timeout if refresh finished quickly
+            if (this.refreshIndicatorTimeout) {
+                clearTimeout(this.refreshIndicatorTimeout);
+                this.refreshIndicatorTimeout = null;
+            }
+            // Reset the indicator immediately when done
+            if (lastUpdateElement) {
+                this.updateLastRefreshTime();
+            }
         }
     }
 
@@ -942,6 +1122,7 @@ async function refreshConnections() {
         const result = await response.json();
         
         if (result.success) {
+            adminPanel.clearDataCache(); // Clear cache to force UI update
             await adminPanel.loadServers();
             await adminPanel.loadStats();
             alert('Connections refreshed successfully');
@@ -965,6 +1146,7 @@ async function loadServers() {
     adminPanel.showRefreshingIndicator(true);
     
     try {
+        adminPanel.clearDataCache(); // Clear cache to force UI update
         await adminPanel.loadServers();
         await adminPanel.loadStats();
     } finally {
@@ -1050,6 +1232,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             if (result.success) {
                 closeModal();
+                adminPanel.clearDataCache(); // Clear cache to force UI update
                 await adminPanel.loadServers();
                 await adminPanel.loadStats();
             } else {
@@ -1060,3 +1243,270 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+// Logs functionality
+let currentLogServerId = null;
+let currentLogFilename = null;
+let logsAutoRefreshEnabled = false;
+let logsAutoRefreshTimer = null;
+
+async function loadServerLogs() {
+    try {
+        const response = await adminPanel.makeAuthenticatedRequest('/api/logs');
+        const result = await response.json();
+        
+        if (result.success) {
+            displayLogsList(result.data.logs);
+        } else {
+            throw new Error(result.error || 'Failed to load logs');
+        }
+    } catch (error) {
+        console.error('Error loading logs:', error);
+        document.getElementById('logsListContainer').innerHTML = 
+            '<div class="error">Error loading logs: ' + error.message + '</div>';
+    }
+}
+
+function displayLogsList(logs) {
+    const container = document.getElementById('logsListContainer');
+    
+    if (logs.length === 0) {
+        container.innerHTML = '<div class="no-logs">No log files found</div>';
+        return;
+    }
+    
+    const logsHTML = logs.map(log => `
+        <div class="log-item" onclick="selectLog(${log.server_id}, '${log.server_name}', '${log.filename}')">
+            <div class="log-item-name">${log.server_name}</div>
+            <div class="log-item-info">
+                ID: ${log.server_id} | Size: ${formatFileSize(log.size)} | 
+                Modified: ${new Date(log.modified).toLocaleString()}
+            </div>
+        </div>
+    `).join('');
+    
+    container.innerHTML = logsHTML;
+}
+
+async function loadLog(filename) {
+    // Update active state
+    document.querySelectorAll('.log-item').forEach(item => item.classList.remove('active'));
+    event.target.closest('.log-item').classList.add('active');
+    
+    currentLogServerId = null; // Clear server ID for generic logs
+    currentLogFilename = filename;
+    
+    // Update log viewer header
+    document.getElementById('logViewerTitle').textContent = `Gateway Log: ${filename}`;
+    document.getElementById('refreshLogBtn').disabled = false;
+    document.getElementById('downloadLogBtn').disabled = false;
+    
+    // Load log content
+    await loadGenericLogContent(filename);
+}
+
+async function selectLog(serverId, serverName, filename) {
+    // Update active state
+    document.querySelectorAll('.log-item').forEach(item => item.classList.remove('active'));
+    event.target.closest('.log-item').classList.add('active');
+    
+    currentLogServerId = serverId;
+    
+    // Update log viewer header
+    document.getElementById('logViewerTitle').textContent = `Logs for ${serverName}`;
+    document.getElementById('refreshLogBtn').disabled = false;
+    document.getElementById('downloadLogBtn').disabled = false;
+    
+    // Load log content
+    await loadLogContent(serverId);
+}
+
+async function loadLogContent(serverId) {
+    const logContent = document.getElementById('logContent');
+    const tailCheckbox = document.getElementById('tailLogsCheckbox');
+    
+    try {
+        let url = `/api/upstream-servers/${serverId}/logs`;
+        if (tailCheckbox.checked) {
+            url += '?tail=true&lines=100';
+        }
+        
+        const response = await adminPanel.makeAuthenticatedRequest(url);
+        const result = await response.json();
+        
+        if (result.success) {
+            if (result.data.content.trim() === '') {
+                logContent.innerHTML = '<div class="no-log-selected">Log file is empty</div>';
+            } else {
+                const lines = result.data.content.split('\n').map(line => 
+                    `<div class="log-line">${escapeHtml(line)}</div>`
+                ).join('');
+                logContent.innerHTML = lines;
+                
+                // Auto-scroll to bottom
+                logContent.scrollTop = logContent.scrollHeight;
+            }
+            updateLogsLastRefreshTime();
+        } else {
+            logContent.innerHTML = `<div class="error">Error loading log: ${result.error}</div>`;
+        }
+    } catch (error) {
+        console.error('Error loading log content:', error);
+        logContent.innerHTML = `<div class="error">Error loading log: ${error.message}</div>`;
+    }
+}
+
+async function loadGenericLogContent(filename) {
+    const logContent = document.getElementById('logContent');
+    const tailCheckbox = document.getElementById('tailLogsCheckbox');
+    
+    try {
+        let url = `/api/logs/${filename}`;
+        if (tailCheckbox.checked) {
+            url += '?tail=true&lines=100';
+        }
+        
+        const response = await adminPanel.makeAuthenticatedRequest(url);
+        const result = await response.json();
+        
+        if (result.success) {
+            if (result.data.content.trim() === '') {
+                logContent.innerHTML = '<div class="no-log-content">This log file is empty</div>';
+            } else {
+                const lines = result.data.content.split('\n').map(line => 
+                    `<div class="log-line">${escapeHtml(line)}</div>`
+                ).join('');
+                logContent.innerHTML = lines;
+                
+                // Auto-scroll to bottom
+                logContent.scrollTop = logContent.scrollHeight;
+            }
+            updateLogsLastRefreshTime();
+        } else {
+            logContent.innerHTML = `<div class="error">Error loading log: ${result.error}</div>`;
+        }
+    } catch (error) {
+        console.error('Error loading log content:', error);
+        logContent.innerHTML = `<div class="error">Error loading log: ${error.message}</div>`;
+    }
+}
+
+function refreshCurrentLog() {
+    if (currentLogServerId) {
+        loadLogContent(currentLogServerId);
+    } else if (currentLogFilename) {
+        loadGenericLogContent(currentLogFilename);
+    }
+}
+
+async function downloadCurrentLog() {
+    if (currentLogServerId) {
+        try {
+            const url = `/api/upstream-servers/${currentLogServerId}/logs?download=true`;
+            const response = await adminPanel.makeAuthenticatedRequest(url);
+            
+            if (response.ok) {
+                const blob = await response.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = `server-${currentLogServerId}.log`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(downloadUrl);
+            } else {
+                alert('Failed to download log file');
+            }
+        } catch (error) {
+            console.error('Error downloading log:', error);
+            alert('Error downloading log: ' + error.message);
+        }
+    } else if (currentLogFilename) {
+        try {
+            const url = `/api/logs/${currentLogFilename}?download=true`;
+            const response = await adminPanel.makeAuthenticatedRequest(url);
+            
+            if (response.ok) {
+                const blob = await response.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = currentLogFilename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(downloadUrl);
+            } else {
+                alert('Failed to download log file');
+            }
+        } catch (error) {
+            console.error('Error downloading log:', error);
+            alert('Error downloading log: ' + error.message);
+        }
+    }
+}
+
+function toggleLogTail() {
+    if (currentLogServerId) {
+        loadLogContent(currentLogServerId);
+    } else if (currentLogFilename) {
+        loadGenericLogContent(currentLogFilename);
+    }
+}
+
+function toggleLogsAutoRefresh() {
+    const toggle = document.getElementById('logsAutoRefreshToggle');
+    logsAutoRefreshEnabled = !logsAutoRefreshEnabled;
+    
+    if (logsAutoRefreshEnabled) {
+        toggle.classList.add('active');
+        startLogsAutoRefresh();
+    } else {
+        toggle.classList.remove('active');
+        stopLogsAutoRefresh();
+    }
+}
+
+function startLogsAutoRefresh() {
+    if (logsAutoRefreshTimer) {
+        clearInterval(logsAutoRefreshTimer);
+    }
+    
+    logsAutoRefreshTimer = setInterval(() => {
+        if (currentLogServerId && document.getElementById('logsTab').style.display !== 'none') {
+            loadLogContent(currentLogServerId);
+        }
+    }, 5000); // Refresh every 5 seconds
+}
+
+function stopLogsAutoRefresh() {
+    if (logsAutoRefreshTimer) {
+        clearInterval(logsAutoRefreshTimer);
+        logsAutoRefreshTimer = null;
+    }
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function updateLogsLastRefreshTime() {
+    const lastUpdateElement = document.getElementById('logsLastUpdateTime');
+    if (lastUpdateElement) {
+        const now = new Date();
+        const timeString = now.toLocaleTimeString();
+        lastUpdateElement.textContent = `Last updated: ${timeString}`;
+        lastUpdateElement.style.color = '#86868b';
+    }
+}

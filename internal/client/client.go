@@ -40,10 +40,16 @@ type MCPClient struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	logger      zerolog.Logger
+	serverID    int64  // Server ID for logging
 }
 
 // NewMCPClient creates a new MCP client for the given upstream server
 func NewMCPClient(upstream *types.UpstreamServer) *MCPClient {
+	return NewMCPClientWithID(upstream, 0)
+}
+
+// NewMCPClientWithID creates a new MCP client for the given upstream server with a specific server ID
+func NewMCPClientWithID(upstream *types.UpstreamServer, serverID int64) *MCPClient {
 	ctx, cancel := context.WithCancel(context.Background())
 	
 	timeout := 30 * time.Second
@@ -51,6 +57,19 @@ func NewMCPClient(upstream *types.UpstreamServer) *MCPClient {
 		if d, err := time.ParseDuration(upstream.Timeout); err == nil {
 			timeout = d
 		}
+	}
+
+	// Create server-specific logger if serverID is provided
+	var clientLogger zerolog.Logger
+	if serverID > 0 {
+		if serverLogger, err := logger.GetServerLogger().CreateServerLogger(serverID, upstream.Name); err == nil {
+			clientLogger = serverLogger
+		} else {
+			// Fall back to regular logger if server logger creation fails
+			clientLogger = logger.GetLogger("mcp-client").With().Str("upstream", upstream.Name).Logger()
+		}
+	} else {
+		clientLogger = logger.GetLogger("mcp-client").With().Str("upstream", upstream.Name).Logger()
 	}
 
 	return &MCPClient{
@@ -65,7 +84,8 @@ func NewMCPClient(upstream *types.UpstreamServer) *MCPClient {
 		requestID:   1,
 		ctx:         ctx,
 		cancel:      cancel,
-		logger:      logger.GetLogger("mcp-client").With().Str("upstream", upstream.Name).Logger(),
+		logger:      clientLogger,
+		serverID:    serverID,
 	}
 }
 
@@ -660,6 +680,11 @@ func (c *MCPClient) Close() error {
 	
 	// Mark as not initialized to prevent further operations
 	c.initialized = false
+	
+	// Close server-specific logger if it exists
+	if c.serverID > 0 {
+		logger.GetServerLogger().CloseServerLogger(c.serverID)
+	}
 	
 	if c.wsConn != nil {
 		err := c.wsConn.Close()

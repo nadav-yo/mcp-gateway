@@ -43,6 +43,7 @@
         <div id="authTabs" class="tabs hidden">
             <div class="tab" data-tab="servers">Upstream Servers</div>
             <div class="tab" data-tab="stats">Statistics</div>
+            <div class="tab" data-tab="logs">Logs</div>
             <div class="tab" data-tab="tokens">Token Management</div>
         </div>
 
@@ -50,6 +51,7 @@
         <div id="noAuthTabs" class="tabs hidden">
             <div class="tab" data-tab="servers">Upstream Servers</div>
             <div class="tab" data-tab="stats">Statistics</div>
+            <div class="tab" data-tab="logs">Logs</div>
         </div>
 
         <!-- Token Management Tab (auth only) -->
@@ -89,6 +91,8 @@
         <!-- Statistics Tab -->
         <div id="statsTab" class="tab-content hidden">
             <h2>Gateway Statistics</h2>
+            
+            <!-- Core Statistics -->
             <div class="stats" id="statsContent">
                 <div class="stat-card">
                     <div class="stat-number" id="totalServersStats">-</div>
@@ -111,6 +115,37 @@
                     <div class="stat-label">Requests Processed</div>
                 </div>
             </div>
+
+            <!-- User & Security Statistics -->
+            <h3>User & Security</h3>
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="activeTokensStats">-</div>
+                    <div class="stat-label">Active Tokens</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="totalUsersStats">-</div>
+                    <div class="stat-label">Total Users</div>
+                </div>
+            </div>
+
+            <!-- Server Status Distribution -->
+            <h3>Server Status Distribution</h3>
+            <div class="stats" id="serverStatusStats">
+                <!-- Dynamically populated -->
+            </div>
+
+            <!-- Server Type Distribution -->
+            <h3>Server Type Distribution</h3>
+            <div class="stats" id="serverTypeStats">
+                <!-- Dynamically populated -->
+            </div>
+
+            <!-- Authentication Methods -->
+            <h3>Authentication Methods</h3>
+            <div class="stats" id="authMethodsStats">
+                <!-- Dynamically populated -->
+            </div>
             
             <div class="actions">
                 <button class="btn btn-secondary" onclick="adminPanel.loadStats()">Refresh Statistics</button>
@@ -128,8 +163,67 @@
                         <span class="info-value" id="gatewayVersion">-</span>
                     </div>
                     <div class="info-item">
+                        <span class="info-label">System Uptime:</span>
+                        <span class="info-value" id="systemUptime">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Last Database Update:</span>
+                        <span class="info-value" id="lastDatabaseUpdate">-</span>
+                    </div>
+                    <div class="info-item">
                         <span class="info-label">Last Updated:</span>
                         <span class="info-value" id="lastUpdated">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="logsTab" class="tab-content hidden">
+            <h2>Logs</h2>
+            <p style="margin-bottom: 20px; color: #86868b; font-size: 14px;">
+                View logs for the gateway and individual servers. Request logs capture all HTTP requests, while server logs capture individual server events.
+            </p>
+            
+            <div class="actions">
+                <button class="btn btn-secondary" onclick="loadServerLogs()">Refresh Logs List</button>
+                <div class="auto-refresh-toggle">
+                    <span class="toggle-label">Auto-refresh logs</span>
+                    <div class="toggle-switch" id="logsAutoRefreshToggle" onclick="toggleLogsAutoRefresh()">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
+                <span id="logsLastUpdateTime" class="last-update-time"></span>
+            </div>
+            
+            <div class="logs-container">
+                <div class="logs-list">
+                    <h3>Gateway Logs</h3>
+                    <div class="log-item" onclick="loadLog('request.log')">
+                        <div class="log-name">request.log</div>
+                        <div class="log-description">All HTTP requests with trace IDs and user information</div>
+                    </div>
+                    
+                    <h3>Available Server Logs</h3>
+                    <div id="logsListContainer">
+                        <div class="loading">Loading logs...</div>
+                    </div>
+                </div>
+                
+                <div class="log-viewer">
+                    <div class="log-viewer-header">
+                        <h3 id="logViewerTitle">Select a log to view</h3>
+                        <div class="log-controls">
+                            <button class="btn btn-small" onclick="refreshCurrentLog()" id="refreshLogBtn" disabled>Refresh</button>
+                            <button class="btn btn-small" onclick="downloadCurrentLog()" id="downloadLogBtn" disabled>Download</button>
+                            <label>
+                                <input type="checkbox" id="tailLogsCheckbox" onchange="toggleLogTail()"> 
+                                Tail (last 100 lines)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="log-content" id="logContent">
+                        <div class="no-log-selected">Select a server log from the list to view its contents</div>
                     </div>
                 </div>
             </div>
