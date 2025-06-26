@@ -66,11 +66,10 @@ func (s *Server) Shutdown() error {
 }
 // New creates a new MCP gateway server instance
 func New(cfg *config.Config, db *database.DB) *Server {
-	upstreamHandler := handlers.NewUpstreamHandler(db)
 	authHandler := handlers.NewAuthHandler(db)
 	ctx, cancel := context.WithCancel(context.Background())
 	
-	return &Server{
+	server := &Server{
 		config: cfg,
 		db:     db,
 		upgrader: websocket.Upgrader{
@@ -79,17 +78,21 @@ func New(cfg *config.Config, db *database.DB) *Server {
 				return true
 			},
 		},
-		tools:           make(map[string]*types.Tool),
-		resources:       make(map[string]*types.Resource),
-		prompts:         make(map[string]*types.Prompt),
-		clients:         make(map[string]*client.MCPClient),
-		clientsByID:     make(map[int64]*client.MCPClient),
-		upstreamHandler: upstreamHandler,
-		authHandler:     authHandler,
-		logger:          logger.GetLogger("server"),
-		ctx:             ctx,
-		cancel:          cancel,
+		tools:       make(map[string]*types.Tool),
+		resources:   make(map[string]*types.Resource),
+		prompts:     make(map[string]*types.Prompt),
+		clients:     make(map[string]*client.MCPClient),
+		clientsByID: make(map[int64]*client.MCPClient),
+		authHandler: authHandler,
+		logger:      logger.GetLogger("server"),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
+	
+	// Create upstream handler with server reference
+	server.upstreamHandler = handlers.NewUpstreamHandler(db, server)
+	
+	return server
 }
 
 // Router returns the HTTP router
@@ -621,6 +624,11 @@ func (s *Server) connectToUpstreamServers() {
 	for _, serverRecord := range servers {
 		upstream := serverRecord.ToUpstreamServer()
 		
+		// Set status to "starting" for stdio servers since they take time to initialize
+		if upstream.Type == "stdio" {
+			s.db.UpdateUpstreamServerStatus(serverRecord.ID, "starting")
+		}
+		
 		mcpClient := client.NewMCPClient(upstream)
 		
 		if err := mcpClient.Connect(); err != nil {
@@ -661,6 +669,79 @@ func (s *Server) connectToUpstreamServers() {
 	s.updateStats()
 }
 
+// ConnectUpstreamServer connects to a single upstream server by ID
+func (s *Server) ConnectUpstreamServer(serverID int64) error {
+	// Get the server record from database
+	serverRecord, err := s.db.GetUpstreamServer(serverID)
+	if err != nil {
+		return fmt.Errorf("failed to get upstream server: %w", err)
+	}
+
+	// Skip if server is not enabled
+	if !serverRecord.Enabled {
+		return fmt.Errorf("server is not enabled")
+	}
+
+	upstream := serverRecord.ToUpstreamServer()
+	
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Set status to "starting" for stdio servers since they take time to initialize
+	s.logger.Info().Str("upstream", upstream.Name).Str("type", upstream.Type).Msg("Connecting to upstream server")
+	if upstream.Type == "stdio" {
+		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "starting")
+	}
+	
+	mcpClient := client.NewMCPClient(upstream)
+	
+	if err := mcpClient.Connect(); err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("upstream", upstream.Name).
+			Msg("Failed to connect to upstream server")
+		// Update status in database
+		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "error")
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+
+	// Close existing connection if it exists
+	if existingClient, exists := s.clients[upstream.Name]; exists {
+		existingClient.Close()
+	}
+	if existingClient, exists := s.clientsByID[serverRecord.ID]; exists {
+		existingClient.Close()
+	}
+
+	s.clients[upstream.Name] = mcpClient
+	s.clientsByID[serverRecord.ID] = mcpClient
+	
+	// Update status in database
+	s.db.UpdateUpstreamServerStatus(serverRecord.ID, "connected")
+	
+	// Aggregate tools from this upstream server
+	for name, tool := range mcpClient.GetTools() {
+		s.tools[name] = tool
+	}
+	
+	// Aggregate resources from this upstream server
+	for uri, resource := range mcpClient.GetResources() {
+		s.resources[uri] = resource
+	}
+	
+	// Aggregate prompts from this upstream server (but don't expose them in gateway API)
+	for name, prompt := range mcpClient.GetPrompts() {
+		s.prompts[name] = prompt
+	}
+
+	s.logger.Info().Str("upstream", upstream.Name).Msg("Successfully connected to upstream server")
+	
+	// Update stats
+	s.updateStats()
+	
+	return nil
+}
+
 // handleRefreshConnections handles connection refresh requests
 func (s *Server) handleRefreshConnections(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -699,6 +780,79 @@ func (s *Server) handleRefreshConnections(w http.ResponseWriter, r *http.Request
 	}
 	
 	json.NewEncoder(w).Encode(response)
+}
+
+// DisconnectUpstreamServer disconnects and removes a specific upstream server connection
+func (s *Server) DisconnectUpstreamServer(serverID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Find the client by ID
+	client, exists := s.clientsByID[serverID]
+	if !exists {
+		// Server not connected, nothing to do
+		return nil
+	}
+	
+	// Close the connection
+	if err := client.Close(); err != nil {
+		// Don't log normal process exit codes as errors
+		if err.Error() != "exit status 1" && err.Error() != "exit status 0" {
+			s.logger.Error().
+				Err(err).
+				Int64("server_id", serverID).
+				Msg("Error closing connection to upstream server")
+		} else {
+			s.logger.Debug().
+				Err(err).
+				Int64("server_id", serverID).
+				Msg("Upstream server process exited")
+		}
+	}
+	
+	// Remove from both maps
+	// First find the server name to remove from clients map
+	for name, c := range s.clients {
+		if c == client {
+			delete(s.clients, name)
+			break
+		}
+	}
+	delete(s.clientsByID, serverID)
+	
+	// Remove tools, resources, and prompts from this server
+	// Note: This is a simple approach that removes all and re-aggregates from remaining servers
+	// In a more sophisticated implementation, we would track which server contributed which items
+	s.tools = make(map[string]*types.Tool)
+	s.resources = make(map[string]*types.Resource)
+	s.prompts = make(map[string]*types.Prompt)
+	
+	// Re-initialize local tools/resources
+	s.initializeFromConfig()
+	
+	// Re-aggregate from remaining connected servers
+	for _, remainingClient := range s.clients {
+		// Aggregate tools
+		for name, tool := range remainingClient.GetTools() {
+			s.tools[name] = tool
+		}
+		
+		// Aggregate resources
+		for uri, resource := range remainingClient.GetResources() {
+			s.resources[uri] = resource
+		}
+		
+		// Aggregate prompts
+		for name, prompt := range remainingClient.GetPrompts() {
+			s.prompts[name] = prompt
+		}
+	}
+	
+	// Update stats
+	s.updateStats()
+	
+	s.logger.Info().Int64("server_id", serverID).Msg("Disconnected upstream server")
+	return nil
 }
 
 // routeToolCall routes a tool call to the appropriate upstream server or executes locally
@@ -743,7 +897,7 @@ func (s *Server) routeResourceRead(resource *types.Resource, uri string) types.R
 	defer s.mu.RUnlock()
 
 	// Check if this is a prefixed resource (from upstream server)
-	for clientName, mcpClient := range s.clients {
+for clientName, mcpClient := range s.clients {
 		if mcpClient.IsConnected() {
 			clientResources := mcpClient.GetResources()
 			if _, exists := clientResources[uri]; exists {

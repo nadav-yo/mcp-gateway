@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,12 @@ type MCPClient struct {
 	upstream    *types.UpstreamServer
 	wsConn      *websocket.Conn
 	httpClient  *http.Client
+	// For stdio connections
+	process     *exec.Cmd
+	stdin       io.WriteCloser
+	stdout      io.ReadCloser
+	stderr      io.ReadCloser
+	// Common fields
 	mu          sync.RWMutex
 	initialized bool
 	tools       map[string]*types.Tool
@@ -69,6 +76,8 @@ func (c *MCPClient) Connect() error {
 		return c.connectWebSocket()
 	case "http":
 		return c.connectHTTP()
+	case "stdio":
+		return c.connectStdio()
 	default:
 		return fmt.Errorf("unsupported upstream type: %s", c.upstream.Type)
 	}
@@ -107,6 +116,93 @@ func (c *MCPClient) connectHTTP() error {
 	return c.initialize()
 }
 
+// connectStdio starts the stdio process and connects to it
+func (c *MCPClient) connectStdio() error {
+	if len(c.upstream.Command) == 0 {
+		return fmt.Errorf("no command specified for stdio server")
+	}
+
+	c.logger.Info().Strs("command", c.upstream.Command).Msg("Starting stdio process")
+
+	// Create the command
+	c.process = exec.CommandContext(c.ctx, c.upstream.Command[0], c.upstream.Command[1:]...)
+	
+	// Set up pipes
+	stdin, err := c.process.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+	c.stdin = stdin
+
+	stdout, err := c.process.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	c.stdout = stdout
+
+	stderr, err := c.process.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+	c.stderr = stderr
+
+	// Start the process
+	if err := c.process.Start(); err != nil {
+		return fmt.Errorf("failed to start process: %w", err)
+	}
+
+	c.logger.Info().Int("pid", c.process.Process.Pid).Msg("Stdio process started")
+
+	// Start monitoring the process
+	go c.monitorStdioProcess()
+
+	return c.initialize()
+}
+
+// monitorStdioProcess monitors the stdio process and logs stderr
+func (c *MCPClient) monitorStdioProcess() {
+	// Monitor stderr for logging
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.logger.Error().Interface("panic", r).Msg("Panic in stderr monitor goroutine")
+			}
+		}()
+		
+		scanner := bufio.NewScanner(c.stderr)
+		for scanner.Scan() {
+			select {
+			case <-c.ctx.Done():
+				c.logger.Debug().Msg("Stopping stderr monitoring due to context cancellation")
+				return
+			default:
+				c.logger.Debug().Str("stderr", scanner.Text()).Msg("Process stderr")
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			c.logger.Debug().Err(err).Msg("Error reading stderr")
+		}
+	}()
+
+	// Wait for process to finish
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.logger.Error().Interface("panic", r).Msg("Panic in process monitor goroutine")
+			}
+		}()
+		
+		err := c.process.Wait()
+		if err != nil {
+			// Only log unexpected exit codes as errors
+			// Some processes may exit with status 1 during normal shutdown
+			c.logger.Debug().Err(err).Msg("Stdio process exited with non-zero code")
+		} else {
+			c.logger.Debug().Msg("Stdio process exited normally")
+		}
+	}()
+}
+
 // initialize performs the MCP initialize handshake
 func (c *MCPClient) initialize() error {
 	initReq := types.InitializeRequest{
@@ -133,7 +229,7 @@ func (c *MCPClient) initialize() error {
 	
 	// After initialization, fetch available tools and resources
 	if err := c.fetchCapabilities(); err != nil {
-		c.logger.Warn().Err(err).Msg("Failed to fetch capabilities from upstream")
+		c.logger.Debug().Err(err).Msg("Failed to fetch capabilities from upstream")
 	}
 
 	return nil
@@ -308,6 +404,8 @@ func (c *MCPClient) sendRequest(method string, params interface{}) (*types.MCPRe
 		response, err = c.sendWebSocketRequest(request)
 	case "http":
 		response, err = c.sendHTTPRequest(request)
+	case "stdio":
+		response, err = c.sendStdioRequest(request)
 	default:
 		return nil, fmt.Errorf("unsupported upstream type: %s", c.upstream.Type)
 	}
@@ -554,15 +652,81 @@ func (c *MCPClient) IsConnected() bool {
 
 // Close closes the connection to the upstream server
 func (c *MCPClient) Close() error {
+	// Cancel the context first to signal all goroutines to stop
 	c.cancel()
 	
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	
+	// Mark as not initialized to prevent further operations
+	c.initialized = false
+	
 	if c.wsConn != nil {
 		err := c.wsConn.Close()
 		c.wsConn = nil
 		return err
+	}
+	
+	// Close stdio process if running
+	if c.process != nil {
+		// Close stdin to signal the process to exit gracefully
+		if c.stdin != nil {
+			c.stdin.Close()
+			c.stdin = nil
+		}
+		
+		// Wait for process to exit (with timeout)
+		done := make(chan error, 1)
+		go func() {
+			done <- c.process.Wait()
+		}()
+		
+		var finalErr error
+		select {
+		case err := <-done:
+			if err != nil {
+				// Only log non-zero exit codes as debug instead of error
+				// since they might be expected behavior (e.g., controlled shutdown)
+				c.logger.Debug().Err(err).Msg("Stdio process exited with non-zero code")
+				finalErr = err
+			} else {
+				c.logger.Debug().Msg("Stdio process exited gracefully")
+			}
+		case <-time.After(5 * time.Second):
+			// Force kill if it doesn't exit gracefully
+			c.logger.Warn().Msg("Stdio process did not exit gracefully, forcing termination")
+			
+			// Check if process is still running before trying to kill it
+			if c.process.ProcessState == nil || !c.process.ProcessState.Exited() {
+				if err := c.process.Process.Kill(); err != nil {
+					c.logger.Error().Err(err).Msg("Failed to kill stdio process")
+				}
+			} else {
+				c.logger.Info().Msg("Stdio process already exited")
+			}
+			
+			// Wait for the Wait() call to complete
+			select {
+			case err := <-done:
+				finalErr = err
+			case <-time.After(2 * time.Second):
+				// Final timeout - the Wait() call should complete quickly after Kill()
+				c.logger.Warn().Msg("Timeout waiting for stdio process cleanup")
+			}
+		}
+		
+		// Clean up process references
+		c.process = nil
+		if c.stdout != nil {
+			c.stdout.Close()
+			c.stdout = nil
+		}
+		if c.stderr != nil {
+			c.stderr.Close()
+			c.stderr = nil
+		}
+		
+		return finalErr
 	}
 	
 	return nil
@@ -643,4 +807,42 @@ func (c *MCPClient) addAuthToHeaders(headers http.Header) error {
 	}
 
 	return nil
+}
+
+// sendStdioRequest sends a request via stdio to the process
+func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPResponse, error) {
+	if c.process == nil || c.stdin == nil || c.stdout == nil {
+		return nil, fmt.Errorf("stdio process not connected")
+	}
+
+	// Marshal the request to JSON
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Send the request followed by a newline
+	_, err = c.stdin.Write(append(requestBytes, '\n'))
+	if err != nil {
+		return nil, fmt.Errorf("failed to write to stdin: %w", err)
+	}
+
+	// Read the response from stdout
+	scanner := bufio.NewScanner(c.stdout)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("failed to read from stdout: %w", err)
+		}
+		return nil, fmt.Errorf("no response received from process")
+	}
+
+	responseBytes := scanner.Bytes()
+	
+	// Parse the response
+	var response types.MCPResponse
+	if err := json.Unmarshal(responseBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return &response, nil
 }

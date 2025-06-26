@@ -8,6 +8,13 @@ class AdminPanel {
         this.user = null;
         this.currentEditingId = null;
         
+        // Auto-refresh configuration
+        this.autoRefreshEnabled = true;
+        this.autoRefreshInterval = 3000; // 3 seconds
+        this.autoRefreshTimer = null;
+        this.lastRefreshTime = 0;
+        this.isRefreshing = false;
+        
         if (this.authEnabled) {
             this.token = localStorage.getItem('mcp_token');
         }
@@ -29,6 +36,7 @@ class AdminPanel {
         
         this.setupEventListeners();
         await this.loadInitialData();
+        this.startAutoRefresh();
     }
     
     setupAuthUI() {
@@ -88,6 +96,7 @@ class AdminPanel {
     }
 
     logout() {
+        this.stopAutoRefresh();
         this.token = null;
         this.user = null;
         localStorage.removeItem('mcp_token');
@@ -122,6 +131,9 @@ class AdminPanel {
         
         // Show servers tab content by default
         document.getElementById('serversTab').classList.remove('hidden');
+        
+        // Initialize auto-refresh UI
+        this.updateAutoRefreshUI();
     }
 
     setupEventListeners() {
@@ -184,6 +196,89 @@ class AdminPanel {
         await this.loadServers();
     }
 
+    // Auto-refresh functionality
+    startAutoRefresh() {
+        if (this.autoRefreshTimer) {
+            clearInterval(this.autoRefreshTimer);
+        }
+        
+        this.autoRefreshTimer = setInterval(() => {
+            if (this.autoRefreshEnabled && !this.isRefreshing) {
+                this.performAutoRefresh();
+            }
+        }, this.autoRefreshInterval);
+        
+        console.log(`Auto-refresh started (${this.autoRefreshInterval}ms interval)`);
+    }
+    
+    stopAutoRefresh() {
+        if (this.autoRefreshTimer) {
+            clearInterval(this.autoRefreshTimer);
+            this.autoRefreshTimer = null;
+            console.log('Auto-refresh stopped');
+        }
+    }
+    
+    async performAutoRefresh() {
+        const now = Date.now();
+        // Avoid too frequent refreshes
+        if (now - this.lastRefreshTime < 1000) {
+            return;
+        }
+        
+        this.isRefreshing = true;
+        this.lastRefreshTime = now;
+        
+        // Add subtle loading indicator
+        this.showRefreshingIndicator(true);
+        
+        try {
+            // Only refresh if we're looking at the servers tab or stats tab
+            const currentTab = this.getCurrentActiveTab();
+            
+            if (currentTab === 'servers' || !currentTab) {
+                // Always refresh servers data as it's the main tab
+                await Promise.all([
+                    this.loadStats(),
+                    this.loadServers()
+                ]);
+            } else if (currentTab === 'stats') {
+                // Refresh stats tab data
+                await this.loadStatsForTab();
+            }
+            // Don't auto-refresh tokens tab for security reasons
+            
+        } catch (error) {
+            console.error('Auto-refresh failed:', error);
+            // Don't show error to user for auto-refresh failures
+        } finally {
+            this.isRefreshing = false;
+            this.showRefreshingIndicator(false);
+        }
+    }
+    
+    getCurrentActiveTab() {
+        const activeTab = document.querySelector('.tab.active');
+        return activeTab ? activeTab.dataset.tab : null;
+    }
+    
+    toggleAutoRefresh() {
+        this.autoRefreshEnabled = !this.autoRefreshEnabled;
+        this.updateAutoRefreshUI();
+        console.log(`Auto-refresh ${this.autoRefreshEnabled ? 'enabled' : 'disabled'}`);
+    }
+    
+    updateAutoRefreshUI() {
+        const toggle = document.getElementById('autoRefreshToggle');
+        if (toggle) {
+            if (this.autoRefreshEnabled) {
+                toggle.classList.add('active');
+            } else {
+                toggle.classList.remove('active');
+            }
+        }
+    }
+
     async makeAuthenticatedRequest(url, options = {}) {
         if (this.authEnabled && this.token) {
             options.headers = {
@@ -200,8 +295,7 @@ class AdminPanel {
         
         try {
             // Add cache busting parameter
-            const cacheBuster = new Date().getTime();
-            const response = await this.makeAuthenticatedRequest(`/auth/tokens?_=${cacheBuster}`);
+            const response = await this.makeAuthenticatedRequest(`/auth/tokens?_=${new Date().getTime()}`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${await response.text()}`);
             }
@@ -374,6 +468,9 @@ class AdminPanel {
             document.getElementById('gatewayVersion').textContent = info.version || '1.0.0';
             document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
             
+            // Update last refresh time for stats tab
+            this.updateLastRefreshTime();
+            
         } catch (error) {
             console.error('Error loading stats for tab:', error);
             // Show error in stats if loading fails
@@ -420,6 +517,9 @@ class AdminPanel {
                 
                 this.renderServers(servers);
                 document.getElementById('serverCount').textContent = `${serversResult.data.count || 0} servers`;
+                
+                // Update last refresh time
+                this.updateLastRefreshTime();
             } else {
                 throw new Error(serversResult.error || 'Failed to load servers');
             }
@@ -441,8 +541,9 @@ class AdminPanel {
         serversList.innerHTML = servers.map((server, index) => {
             const toolDetails = server.tool_details || [];
             const isRuntimeConnected = server.runtime_connected || false;
-            const displayStatus = isRuntimeConnected && server.enabled ? 'connected' : 
-                                server.enabled ? 'disconnected' : 'disabled';
+            
+            // Use the database status, but show "disabled" if the server is not enabled
+            const displayStatus = !server.enabled ? 'disabled' : (server.status || 'disconnected');
             
             const toolsTableContent = toolDetails.length > 0 
                 ? `<table class="tools-table">
@@ -463,18 +564,41 @@ class AdminPanel {
                 </table>`
                 : '<div class="no-tools">No tools available</div>';
             
+            const displayUrl = server.type === 'stdio' && server.command && server.command.length > 0
+                ? server.command.join(' ')
+                : server.url || '';
+            
+            // Build authentication info
+            let authInfo = '';
+            if (server.auth_type && server.type === 'http') {
+                switch (server.auth_type) {
+                    case 'bearer':
+                        authInfo = '<span>Auth: Bearer Token</span>';
+                        break;
+                    case 'basic':
+                        authInfo = `<span>Auth: Basic (${this.escapeHtml(server.auth_username || 'Unknown')})</span>`;
+                        break;
+                    case 'api-key':
+                        authInfo = `<span>Auth: API Key (${this.escapeHtml(server.auth_header_name || 'X-API-Key')})</span>`;
+                        break;
+                    default:
+                        authInfo = `<span>Auth: ${this.escapeHtml(server.auth_type)}</span>`;
+                }
+            }
+            
             return `
                 <div class="server-item">
                     <div class="server-main">
                         <div class="server-info">
                             <div class="server-name">${this.escapeHtml(server.name)}</div>
-                            <div class="server-url">${this.escapeHtml(server.url)}</div>
+                            <div class="server-url">${this.escapeHtml(displayUrl)}</div>
                             <div class="server-meta">
                                 <span class="server-status status-${displayStatus}">
                                     ${displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1)}
                                 </span>
                                 <span>Type: ${server.type}</span>
                                 ${server.prefix ? `<span>Prefix: ${this.escapeHtml(server.prefix)}</span>` : ''}
+                                ${authInfo}
                                 <span>Enabled: ${server.enabled ? 'Yes' : 'No'}</span>
                             </div>
                         </div>
@@ -534,6 +658,44 @@ class AdminPanel {
                 document.getElementById('serverPrefix').value = server.prefix || '';
                 document.getElementById('serverDescription').value = server.description || '';
                 document.getElementById('serverEnabled').checked = server.enabled;
+                
+                // Handle command field for stdio servers
+                if (server.command && Array.isArray(server.command) && server.command.length > 0) {
+                    document.getElementById('serverCommand').value = server.command.join(' ');
+                } else {
+                    document.getElementById('serverCommand').value = '';
+                }
+                
+                // Handle authentication fields for HTTP servers
+                if (server.auth_type) {
+                    document.getElementById('authType').value = server.auth_type;
+                    
+                    switch (server.auth_type) {
+                        case 'bearer':
+                            document.getElementById('bearerToken').value = server.auth_token || '';
+                            break;
+                        case 'basic':
+                            document.getElementById('basicUsername').value = server.auth_username || '';
+                            document.getElementById('basicPassword').value = server.auth_password || '';
+                            break;
+                        case 'api-key':
+                            document.getElementById('apiKey').value = server.auth_api_key || '';
+                            document.getElementById('apiKeyHeader').value = server.auth_header_name || 'X-API-Key';
+                            break;
+                    }
+                } else {
+                    // Reset authentication fields
+                    document.getElementById('authType').value = '';
+                    document.getElementById('bearerToken').value = '';
+                    document.getElementById('basicUsername').value = '';
+                    document.getElementById('basicPassword').value = '';
+                    document.getElementById('apiKey').value = '';
+                    document.getElementById('apiKeyHeader').value = 'X-API-Key';
+                }
+                
+                // Set correct field visibility based on type
+                toggleServerFields();
+                toggleAuthFields();
                 
                 document.getElementById('serverModal').style.display = 'block';
             } else {
@@ -608,6 +770,24 @@ class AdminPanel {
         return div.innerHTML;
     }
 
+    updateLastRefreshTime() {
+        const lastUpdateElement = document.getElementById('lastUpdateTime');
+        if (lastUpdateElement) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString();
+            lastUpdateElement.textContent = `Last updated: ${timeString}`;
+            lastUpdateElement.style.color = '#86868b'; // Reset to default color
+        }
+    }
+    
+    showRefreshingIndicator(show) {
+        const lastUpdateElement = document.getElementById('lastUpdateTime');
+        if (lastUpdateElement && show) {
+            lastUpdateElement.textContent = 'Updating...';
+            lastUpdateElement.style.color = '#007AFF';
+        }
+    }
+
     // Utility methods
     copyToClipboard(text, buttonElement) {
         navigator.clipboard.writeText(text).then(() => {
@@ -652,6 +832,24 @@ let adminPanel;
 
 document.addEventListener('DOMContentLoaded', function() {
     adminPanel = new AdminPanel();
+    
+    // Clean up auto-refresh timer when page is unloaded
+    window.addEventListener('beforeunload', function() {
+        if (adminPanel) {
+            adminPanel.stopAutoRefresh();
+        }
+    });
+    
+    // Pause auto-refresh when page is not visible (optional optimization)
+    document.addEventListener('visibilitychange', function() {
+        if (adminPanel) {
+            if (document.hidden) {
+                adminPanel.autoRefreshEnabled = false;
+            } else {
+                adminPanel.autoRefreshEnabled = true;
+            }
+        }
+    });
 });
 
 function showAddServerModal() {
@@ -659,7 +857,72 @@ function showAddServerModal() {
     document.getElementById('modalTitle').textContent = 'Add Server';
     document.getElementById('serverForm').reset();
     document.getElementById('serverEnabled').checked = true;
+    
+    // Reset authentication fields
+    document.getElementById('authType').value = '';
+    document.getElementById('bearerToken').value = '';
+    document.getElementById('basicUsername').value = '';
+    document.getElementById('basicPassword').value = '';
+    document.getElementById('apiKey').value = '';
+    document.getElementById('apiKeyHeader').value = 'X-API-Key';
+    
+    toggleServerFields();
+    toggleAuthFields();
     document.getElementById('serverModal').style.display = 'block';
+}
+
+function toggleServerFields() {
+    const serverType = document.getElementById('serverType').value;
+    const urlGroup = document.getElementById('urlGroup');
+    const commandGroup = document.getElementById('commandGroup');
+    const authSection = document.getElementById('authSection');
+    const serverUrl = document.getElementById('serverUrl');
+    const serverCommand = document.getElementById('serverCommand');
+    
+    if (serverType === 'stdio') {
+        urlGroup.classList.add('hidden');
+        commandGroup.classList.remove('hidden');
+        authSection.classList.remove('visible');
+        serverUrl.required = false;
+        serverCommand.required = true;
+    } else {
+        urlGroup.classList.remove('hidden');
+        commandGroup.classList.add('hidden');
+        serverUrl.required = true;
+        serverCommand.required = false;
+        
+        // Show auth section for HTTP servers
+        if (serverType === 'http') {
+            authSection.classList.add('visible');
+        } else {
+            authSection.classList.remove('visible');
+        }
+    }
+}
+
+function toggleAuthFields() {
+    const authType = document.getElementById('authType').value;
+    const bearerFields = document.getElementById('bearerFields');
+    const basicFields = document.getElementById('basicFields');
+    const apiKeyFields = document.getElementById('apiKeyFields');
+    
+    // Hide all auth fields
+    bearerFields.classList.remove('active');
+    basicFields.classList.remove('active');
+    apiKeyFields.classList.remove('active');
+    
+    // Show relevant auth fields
+    switch (authType) {
+        case 'bearer':
+            bearerFields.classList.add('active');
+            break;
+        case 'basic':
+            basicFields.classList.add('active');
+            break;
+        case 'api-key':
+            apiKeyFields.classList.add('active');
+            break;
+    }
 }
 
 function closeModal() {
@@ -668,6 +931,11 @@ function closeModal() {
 
 async function refreshConnections() {
     try {
+        // Temporarily pause auto-refresh during manual refresh
+        const wasAutoRefreshEnabled = adminPanel.autoRefreshEnabled;
+        adminPanel.autoRefreshEnabled = false;
+        adminPanel.showRefreshingIndicator(true);
+        
         const response = await adminPanel.makeAuthenticatedRequest('/gateway/refresh', {
             method: 'POST'
         });
@@ -680,29 +948,89 @@ async function refreshConnections() {
         } else {
             alert('Error refreshing connections: ' + (result.error || 'Unknown error'));
         }
+        
+        // Re-enable auto-refresh
+        adminPanel.autoRefreshEnabled = wasAutoRefreshEnabled;
     } catch (error) {
+        // Re-enable auto-refresh on error too
+        adminPanel.autoRefreshEnabled = wasAutoRefreshEnabled || true;
         alert('Error refreshing connections: ' + error.message);
     }
 }
 
 async function loadServers() {
-    await adminPanel.loadServers();
+    // Temporarily pause auto-refresh during manual refresh
+    const wasAutoRefreshEnabled = adminPanel.autoRefreshEnabled;
+    adminPanel.autoRefreshEnabled = false;
+    adminPanel.showRefreshingIndicator(true);
+    
+    try {
+        await adminPanel.loadServers();
+        await adminPanel.loadStats();
+    } finally {
+        // Re-enable auto-refresh
+        adminPanel.autoRefreshEnabled = wasAutoRefreshEnabled;
+    }
 }
 
 // Server form submission
 document.addEventListener('DOMContentLoaded', function() {
+    // Make toggleAuthFields available globally
+    window.toggleAuthFields = toggleAuthFields;
+    
     document.getElementById('serverForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         
+        const serverType = document.getElementById('serverType').value;
         const serverData = {
             name: document.getElementById('serverName').value,
-            url: document.getElementById('serverUrl').value,
-            type: document.getElementById('serverType').value,
+            type: serverType,
             timeout: document.getElementById('serverTimeout').value,
             prefix: document.getElementById('serverPrefix').value,
             description: document.getElementById('serverDescription').value,
             enabled: document.getElementById('serverEnabled').checked
         };
+
+        // Add URL or Command based on type
+        if (serverType === 'stdio') {
+            const commandString = document.getElementById('serverCommand').value.trim();
+            if (commandString) {
+                // Split command string into array, handling quoted arguments
+                serverData.command = commandString.match(/(?:[^\s"]+|"[^"]*")+/g)?.map(arg => 
+                    arg.startsWith('"') && arg.endsWith('"') ? arg.slice(1, -1) : arg
+                ) || [];
+            } else {
+                serverData.command = [];
+            }
+            serverData.url = ''; // Empty URL for stdio
+        } else {
+            serverData.url = document.getElementById('serverUrl').value;
+            // Don't send command field for non-stdio types to avoid confusion
+        }
+
+        // Add authentication data for HTTP servers
+        if (serverType === 'http') {
+            const authType = document.getElementById('authType').value;
+            if (authType) {
+                serverData.auth = {
+                    type: authType
+                };
+                
+                switch (authType) {
+                    case 'bearer':
+                        serverData.auth.bearer_token = document.getElementById('bearerToken').value;
+                        break;
+                    case 'basic':
+                        serverData.auth.username = document.getElementById('basicUsername').value;
+                        serverData.auth.password = document.getElementById('basicPassword').value;
+                        break;
+                    case 'api-key':
+                        serverData.auth.api_key = document.getElementById('apiKey').value;
+                        serverData.auth.header_name = document.getElementById('apiKeyHeader').value || 'X-API-Key';
+                        break;
+                }
+            }
+        }
         
         try {
             const url = adminPanel.currentEditingId 

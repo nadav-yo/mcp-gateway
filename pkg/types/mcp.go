@@ -195,8 +195,9 @@ type Notification struct {
 // UpstreamServer represents configuration for an upstream MCP server
 type UpstreamServer struct {
 	Name        string            `json:"name"`
-	URL         string            `json:"url"`
-	Type        string            `json:"type"` // "websocket", "http", "stdio"
+	URL         string            `json:"url"`                     // For websocket/http servers
+	Command     []string          `json:"command,omitempty"`       // For stdio servers (e.g., ["npx", "name", "--variables"])
+	Type        string            `json:"type"`                    // "websocket", "http", "stdio"
 	Headers     map[string]string `json:"headers,omitempty"`
 	Timeout     string            `json:"timeout,omitempty"`
 	Enabled     bool              `json:"enabled"`

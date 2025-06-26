@@ -8,22 +8,31 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/nadav-yo/mcp-gateway/internal/database"
+	"github.com/nadav-yo/mcp-gateway/internal/logger"
+	"github.com/rs/zerolog"
 )
 
 // UpstreamHandler handles CRUD operations for upstream servers
 type UpstreamHandler struct {
-	db *database.DB
+	db     *database.DB
+	server ServerInterface
+	logger zerolog.Logger
 }
 
 // NewUpstreamHandler creates a new upstream handler
-func NewUpstreamHandler(db *database.DB) *UpstreamHandler {
-	return &UpstreamHandler{db: db}
+func NewUpstreamHandler(db *database.DB, server ServerInterface) *UpstreamHandler {
+	return &UpstreamHandler{
+		db:     db,
+		server: server,
+		logger: logger.GetLogger("upstream-handler"),
+	}
 }
 
 // CreateUpstreamServerRequest represents the request to create an upstream server
 type CreateUpstreamServerRequest struct {
 	Name        string            `json:"name" binding:"required"`
-	URL         string            `json:"url" binding:"required"`
+	URL         string            `json:"url,omitempty"`
+	Command     []string          `json:"command,omitempty"`
 	Type        string            `json:"type" binding:"required"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Timeout     string            `json:"timeout,omitempty"`
@@ -37,6 +46,7 @@ type CreateUpstreamServerRequest struct {
 type UpdateUpstreamServerRequest struct {
 	Name        string            `json:"name,omitempty"`
 	URL         string            `json:"url,omitempty"`
+	Command     []string          `json:"command,omitempty"`
 	Type        string            `json:"type,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Timeout     string            `json:"timeout,omitempty"`
@@ -64,6 +74,12 @@ type APIResponse struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+// ServerInterface defines the methods the upstream handler needs from the server
+type ServerInterface interface {
+	DisconnectUpstreamServer(serverID int64) error
+	ConnectUpstreamServer(serverID int64) error
+}
+
 // CreateUpstreamServer handles POST /api/upstream-servers
 func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Request) {
 	var req CreateUpstreamServerRequest
@@ -73,9 +89,22 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 	}
 
 	// Validate required fields
-	if req.Name == "" || req.URL == "" || req.Type == "" {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Missing required fields: name, url, type", nil)
+	if req.Name == "" || req.Type == "" {
+		h.writeErrorResponse(w, http.StatusBadRequest, "Missing required fields: name, type", nil)
 		return
+	}
+
+	// Validate type-specific requirements
+	if req.Type == "stdio" {
+		if req.Command == nil || len(req.Command) == 0 {
+			h.writeErrorResponse(w, http.StatusBadRequest, "Command is required for stdio servers", nil)
+			return
+		}
+	} else {
+		if req.URL == "" {
+			h.writeErrorResponse(w, http.StatusBadRequest, "URL is required for websocket and http servers", nil)
+			return
+		}
 	}
 
 	// Validate type
@@ -92,10 +121,12 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 		req.Headers = make(map[string]string)
 	}
 
-	// Create database record
+	// Create database record with initial status
+
 	record := &database.UpstreamServerRecord{
 		Name:        req.Name,
 		URL:         req.URL,
+		Command:     req.Command,
 		Type:        req.Type,
 		Headers:     req.Headers,
 		Timeout:     req.Timeout,
@@ -118,6 +149,19 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		h.writeErrorResponse(w, http.StatusConflict, "Failed to create upstream server", err)
 		return
+	}
+
+	// If the server is enabled, attempt to connect to it
+	if created.Enabled {
+		go func() {
+			if err := h.server.ConnectUpstreamServer(created.ID); err != nil {
+				h.logger.Error().
+					Err(err).
+					Int64("server_id", created.ID).
+					Str("server_name", created.Name).
+					Msg("Failed to connect to newly created upstream server")
+			}
+		}()
 	}
 
 	h.writeSuccessResponse(w, http.StatusCreated, "Upstream server created successfully", created)
@@ -198,12 +242,28 @@ func (h *UpstreamHandler) UpdateUpstreamServer(w http.ResponseWriter, r *http.Re
 	if req.URL != "" {
 		existing.URL = req.URL
 	}
+	if req.Command != nil {
+		existing.Command = req.Command
+	}
 	if req.Type != "" {
 		if req.Type != "websocket" && req.Type != "http" && req.Type != "stdio" {
 			h.writeErrorResponse(w, http.StatusBadRequest, "Invalid type. Must be 'websocket', 'http', or 'stdio'", nil)
 			return
 		}
 		existing.Type = req.Type
+		
+		// Validate type-specific requirements
+		if req.Type == "stdio" {
+			if (req.Command == nil || len(req.Command) == 0) && (existing.Command == nil || len(existing.Command) == 0) {
+				h.writeErrorResponse(w, http.StatusBadRequest, "Command is required for stdio servers", nil)
+				return
+			}
+		} else {
+			if req.URL == "" && existing.URL == "" {
+				h.writeErrorResponse(w, http.StatusBadRequest, "URL is required for websocket and http servers", nil)
+				return
+			}
+		}
 	}
 	if req.Headers != nil {
 		existing.Headers = req.Headers
@@ -255,6 +315,18 @@ func (h *UpstreamHandler) DeleteUpstreamServer(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// First disconnect the server if it's currently connected
+	if err := h.server.DisconnectUpstreamServer(id); err != nil {
+		h.logger.Error().
+			Err(err).
+			Int64("server_id", id).
+			Msg("Failed to disconnect upstream server during deletion, continuing with database deletion")
+		// Continue with deletion even if disconnect fails
+		// The server might not be connected or might have connection issues
+		// We still want to remove it from the database
+	}
+
+	// Now delete from database
 	if err := h.db.DeleteUpstreamServer(id); err != nil {
 		h.writeErrorResponse(w, http.StatusNotFound, "Failed to delete upstream server", err)
 		return
@@ -292,6 +364,30 @@ func (h *UpstreamHandler) ToggleUpstreamServer(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to toggle upstream server", err)
 		return
+	}
+
+	// If server is being disabled, disconnect it
+	if !updated.Enabled {
+		go func() {
+			if err := h.server.DisconnectUpstreamServer(id); err != nil {
+				h.logger.Error().
+					Err(err).
+					Int64("server_id", id).
+					Str("server_name", updated.Name).
+					Msg("Failed to disconnect upstream server when disabling")
+			}
+		}()
+	} else {
+		// If server is being enabled, connect to it
+		go func() {
+			if err := h.server.ConnectUpstreamServer(id); err != nil {
+				h.logger.Error().
+					Err(err).
+					Int64("server_id", id).
+					Str("server_name", updated.Name).
+					Msg("Failed to connect to upstream server when enabling")
+			}
+		}()
 	}
 
 	status := "disabled"

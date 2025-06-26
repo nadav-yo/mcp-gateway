@@ -82,6 +82,12 @@ body {
     border-color: #007AFF;
 }
 
+.form-help {
+    font-size: 14px;
+    color: #86868b;
+    margin-top: 4px;
+}
+
 /* Stats styles */
 .stats {
     display: grid;
@@ -122,6 +128,12 @@ body {
     gap: 15px;
     margin-bottom: 30px;
     flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.actions .auto-refresh-toggle {
+    margin-left: auto;
 }
 
 /* Stats details styles */
@@ -420,6 +432,21 @@ body {
     color: #721c24;
 }
 
+.status-starting {
+    background: #cce5ff;
+    color: #0066cc;
+    animation: pulse 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+    from {
+        opacity: 0.8;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
 .status-disabled {
     background: #e2e3e5;
     color: #6c757d;
@@ -515,6 +542,53 @@ body {
     gap: 8px;
 }
 
+/* Authentication form styles */
+.form-section {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    margin: 20px 0;
+    border: 1px solid #e5e5ea;
+}
+
+.form-section-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1d1d1f;
+    margin-bottom: 15px;
+}
+
+.auth-fields {
+    display: none;
+    margin-top: 15px;
+}
+
+.auth-fields.active {
+    display: block;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+/* Responsive form row */
+@media (max-width: 768px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Auth section visibility */
+#authSection {
+    display: none;
+}
+
+#authSection.visible {
+    display: block;
+}
+
 /* Utility classes */
 .hidden {
     display: none !important;
@@ -578,4 +652,72 @@ body {
     padding: 20px;
     border-radius: 8px;
     margin-bottom: 20px;
+}
+
+/* Auto-refresh status bar */
+.auto-refresh-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.toggle-label {
+    color: #1d1d1f;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+    background-color: #ccc;
+    border-radius: 24px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.toggle-switch.active {
+    background-color: #34c759;
+}
+
+.toggle-slider {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.toggle-switch.active .toggle-slider {
+    transform: translateX(26px);
+}
+
+.toggle-switch:hover {
+    box-shadow: 0 0 0 8px rgba(52, 199, 89, 0.1);
+}
+
+.toggle-switch.active:hover {
+    box-shadow: 0 0 0 8px rgba(52, 199, 89, 0.2);
+}
+
+.last-update-time {
+    color: #86868b;
+    font-size: 12px;
+}
+
+#autoRefreshToggle.auto-refresh-enabled {
+    background-color: #34c759;
+    border-color: #34c759;
+}
+
+#autoRefreshToggle.auto-refresh-enabled:hover {
+    background-color: #30b850;
+    border-color: #30b850;
 }

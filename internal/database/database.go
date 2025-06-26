@@ -26,6 +26,7 @@ type UpstreamServerRecord struct {
 	ID              int64                 `json:"id" db:"id"`
 	Name            string                `json:"name" db:"name"`
 	URL             string                `json:"url" db:"url"`
+	Command         []string              `json:"command" db:"command"`         // Will be JSON marshaled for stdio servers
 	Type            string                `json:"type" db:"type"`
 	Headers         map[string]string     `json:"headers" db:"headers"` // Will be JSON marshaled
 	Timeout         string                `json:"timeout" db:"timeout"`
@@ -98,7 +99,8 @@ func (db *DB) createTables() error {
 	CREATE TABLE IF NOT EXISTS upstream_servers (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT UNIQUE NOT NULL,
-		url TEXT NOT NULL,
+		url TEXT DEFAULT '',
+		command TEXT DEFAULT '[]',
 		type TEXT NOT NULL CHECK(type IN ('websocket', 'http', 'stdio')),
 		headers TEXT DEFAULT '{}',
 		timeout TEXT DEFAULT '30s',
@@ -114,7 +116,7 @@ func (db *DB) createTables() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		last_seen DATETIME,
-		status TEXT DEFAULT 'disconnected' CHECK(status IN ('connected', 'disconnected', 'error'))
+		status TEXT DEFAULT 'disconnected' CHECK(status IN ('connected', 'disconnected', 'error', 'starting'))
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_upstream_servers_name ON upstream_servers(name);
@@ -169,6 +171,11 @@ func (db *DB) CreateUpstreamServer(server *UpstreamServerRecord) (*UpstreamServe
 		headersJSON = []byte("{}")
 	}
 
+	commandJSON, err := json.Marshal(server.Command)
+	if err != nil {
+		commandJSON = []byte("[]")
+	}
+
 	// Encrypt sensitive authentication data
 	encryptedToken, err := db.secretManager.Encrypt(server.AuthToken)
 	if err != nil {
@@ -186,13 +193,13 @@ func (db *DB) CreateUpstreamServer(server *UpstreamServerRecord) (*UpstreamServe
 	}
 
 	query := `
-	INSERT INTO upstream_servers (name, url, type, headers, timeout, enabled, prefix, description,
+	INSERT INTO upstream_servers (name, url, command, type, headers, timeout, enabled, prefix, description,
 								  auth_type, auth_token, auth_username, auth_password, auth_api_key, auth_header_name)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := db.conn.Exec(query,
-		server.Name, server.URL, server.Type, string(headersJSON),
+		server.Name, server.URL, string(commandJSON), server.Type, string(headersJSON),
 		server.Timeout, server.Enabled, server.Prefix, server.Description,
 		server.AuthType, encryptedToken, server.AuthUsername, encryptedPassword, encryptedAPIKey, server.AuthHeaderName)
 	if err != nil {
@@ -210,7 +217,7 @@ func (db *DB) CreateUpstreamServer(server *UpstreamServerRecord) (*UpstreamServe
 // GetUpstreamServer retrieves an upstream server by ID
 func (db *DB) GetUpstreamServer(id int64) (*UpstreamServerRecord, error) {
 	query := `
-	SELECT id, name, url, type, headers, timeout, enabled, prefix, description,
+	SELECT id, name, url, command, type, headers, timeout, enabled, prefix, description,
 		   auth_type, auth_token, auth_username, auth_password, auth_api_key, auth_header_name,
 		   created_at, updated_at, last_seen, status
 	FROM upstream_servers WHERE id = ?
@@ -219,11 +226,11 @@ func (db *DB) GetUpstreamServer(id int64) (*UpstreamServerRecord, error) {
 	row := db.conn.QueryRow(query, id)
 
 	var server UpstreamServerRecord
-	var headersJSON string
+	var headersJSON, commandJSON string
 	var encryptedToken, encryptedPassword, encryptedAPIKey string
 
 	err := row.Scan(
-		&server.ID, &server.Name, &server.URL, &server.Type, &headersJSON,
+		&server.ID, &server.Name, &server.URL, &commandJSON, &server.Type, &headersJSON,
 		&server.Timeout, &server.Enabled, &server.Prefix, &server.Description,
 		&server.AuthType, &encryptedToken, &server.AuthUsername, &encryptedPassword, &encryptedAPIKey, &server.AuthHeaderName,
 		&server.CreatedAt, &server.UpdatedAt, &server.LastSeen, &server.Status,
@@ -235,6 +242,11 @@ func (db *DB) GetUpstreamServer(id int64) (*UpstreamServerRecord, error) {
 	// Unmarshal headers
 	if err := json.Unmarshal([]byte(headersJSON), &server.Headers); err != nil {
 		server.Headers = make(map[string]string)
+	}
+
+	// Unmarshal command
+	if err := json.Unmarshal([]byte(commandJSON), &server.Command); err != nil {
+		server.Command = []string{}
 	}
 
 	// Decrypt sensitive authentication data
@@ -259,7 +271,7 @@ func (db *DB) GetUpstreamServer(id int64) (*UpstreamServerRecord, error) {
 // GetUpstreamServerByName retrieves an upstream server by name
 func (db *DB) GetUpstreamServerByName(name string) (*UpstreamServerRecord, error) {
 	query := `
-	SELECT id, name, url, type, headers, timeout, enabled, prefix, description,
+	SELECT id, name, url, command, type, headers, timeout, enabled, prefix, description,
 		   auth_type, auth_token, auth_username, auth_password, auth_api_key, auth_header_name,
 		   created_at, updated_at, last_seen, status
 	FROM upstream_servers WHERE name = ?
@@ -268,11 +280,11 @@ func (db *DB) GetUpstreamServerByName(name string) (*UpstreamServerRecord, error
 	row := db.conn.QueryRow(query, name)
 
 	var server UpstreamServerRecord
-	var headersJSON string
+	var headersJSON, commandJSON string
 	var encryptedToken, encryptedPassword, encryptedAPIKey string
 
 	err := row.Scan(
-		&server.ID, &server.Name, &server.URL, &server.Type, &headersJSON,
+		&server.ID, &server.Name, &server.URL, &commandJSON, &server.Type, &headersJSON,
 		&server.Timeout, &server.Enabled, &server.Prefix, &server.Description,
 		&server.AuthType, &encryptedToken, &server.AuthUsername, &encryptedPassword, &encryptedAPIKey, &server.AuthHeaderName,
 		&server.CreatedAt, &server.UpdatedAt, &server.LastSeen, &server.Status,
@@ -284,6 +296,11 @@ func (db *DB) GetUpstreamServerByName(name string) (*UpstreamServerRecord, error
 	// Unmarshal headers
 	if err := json.Unmarshal([]byte(headersJSON), &server.Headers); err != nil {
 		server.Headers = make(map[string]string)
+	}
+
+	// Unmarshal command
+	if err := json.Unmarshal([]byte(commandJSON), &server.Command); err != nil {
+		server.Command = []string{}
 	}
 
 	// Decrypt sensitive authentication data
@@ -308,7 +325,7 @@ func (db *DB) GetUpstreamServerByName(name string) (*UpstreamServerRecord, error
 // ListUpstreamServers retrieves all upstream servers
 func (db *DB) ListUpstreamServers(enabledOnly bool) ([]*UpstreamServerRecord, error) {
 	query := `
-	SELECT id, name, url, type, headers, timeout, enabled, prefix, description,
+	SELECT id, name, url, command, type, headers, timeout, enabled, prefix, description,
 		   auth_type, auth_token, auth_username, auth_password, auth_api_key, auth_header_name,
 		   created_at, updated_at, last_seen, status
 	FROM upstream_servers
@@ -329,11 +346,11 @@ func (db *DB) ListUpstreamServers(enabledOnly bool) ([]*UpstreamServerRecord, er
 	var servers []*UpstreamServerRecord
 	for rows.Next() {
 		var server UpstreamServerRecord
-		var headersJSON string
+		var headersJSON, commandJSON string
 		var encryptedToken, encryptedPassword, encryptedAPIKey string
 
 		err := rows.Scan(
-			&server.ID, &server.Name, &server.URL, &server.Type, &headersJSON,
+			&server.ID, &server.Name, &server.URL, &commandJSON, &server.Type, &headersJSON,
 			&server.Timeout, &server.Enabled, &server.Prefix, &server.Description,
 			&server.AuthType, &encryptedToken, &server.AuthUsername, &encryptedPassword, &encryptedAPIKey, &server.AuthHeaderName,
 			&server.CreatedAt, &server.UpdatedAt, &server.LastSeen, &server.Status)
@@ -346,28 +363,10 @@ func (db *DB) ListUpstreamServers(enabledOnly bool) ([]*UpstreamServerRecord, er
 			server.Headers = make(map[string]string)
 		}
 
-		// Decrypt sensitive authentication data
-		server.AuthToken, err = db.secretManager.Decrypt(encryptedToken)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decrypt auth token: %w", err)
+		// Parse command JSON
+		if err := json.Unmarshal([]byte(commandJSON), &server.Command); err != nil {
+			server.Command = []string{}
 		}
-
-		server.AuthPassword, err = db.secretManager.Decrypt(encryptedPassword)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decrypt auth password: %w", err)
-		}
-
-		server.AuthAPIKey, err = db.secretManager.Decrypt(encryptedAPIKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decrypt auth API key: %w", err)
-		}
-
-		// For security, don't return decrypted secrets in list operations
-		// The secrets will be available when getting individual servers
-		server.AuthToken = ""
-		server.AuthPassword = ""
-		server.AuthAPIKey = ""
-
 		servers = append(servers, &server)
 	}
 
@@ -377,7 +376,7 @@ func (db *DB) ListUpstreamServers(enabledOnly bool) ([]*UpstreamServerRecord, er
 // ListUpstreamServersForConnection lists upstream servers with decrypted auth data for internal connections
 func (db *DB) ListUpstreamServersForConnection(enabledOnly bool) ([]*UpstreamServerRecord, error) {
 	query := `
-	SELECT id, name, url, type, headers, timeout, enabled, prefix, description,
+	SELECT id, name, url, command, type, headers, timeout, enabled, prefix, description,
 		   auth_type, auth_token, auth_username, auth_password, auth_api_key, auth_header_name,
 		   created_at, updated_at, last_seen, status
 	FROM upstream_servers
@@ -398,11 +397,11 @@ func (db *DB) ListUpstreamServersForConnection(enabledOnly bool) ([]*UpstreamSer
 	var servers []*UpstreamServerRecord
 	for rows.Next() {
 		var server UpstreamServerRecord
-		var headersJSON string
+		var headersJSON, commandJSON string
 		var encryptedToken, encryptedPassword, encryptedAPIKey string
 
 		err := rows.Scan(
-			&server.ID, &server.Name, &server.URL, &server.Type, &headersJSON,
+			&server.ID, &server.Name, &server.URL, &commandJSON, &server.Type, &headersJSON,
 			&server.Timeout, &server.Enabled, &server.Prefix, &server.Description,
 			&server.AuthType, &encryptedToken, &server.AuthUsername, &encryptedPassword, &encryptedAPIKey, &server.AuthHeaderName,
 			&server.CreatedAt, &server.UpdatedAt, &server.LastSeen, &server.Status)
@@ -413,6 +412,11 @@ func (db *DB) ListUpstreamServersForConnection(enabledOnly bool) ([]*UpstreamSer
 		// Parse headers JSON
 		if err := json.Unmarshal([]byte(headersJSON), &server.Headers); err != nil {
 			server.Headers = make(map[string]string)
+		}
+
+		// Parse command JSON
+		if err := json.Unmarshal([]byte(commandJSON), &server.Command); err != nil {
+			server.Command = []string{}
 		}
 
 		// Decrypt sensitive authentication data and keep it for connection use
@@ -444,6 +448,11 @@ func (db *DB) UpdateUpstreamServer(id int64, updates *UpstreamServerRecord) (*Up
 		headersJSON = []byte("{}")
 	}
 
+	commandJSON, err := json.Marshal(updates.Command)
+	if err != nil {
+		commandJSON = []byte("[]")
+	}
+
 	// Encrypt sensitive authentication data
 	encryptedToken, err := db.secretManager.Encrypt(updates.AuthToken)
 	if err != nil {
@@ -462,7 +471,7 @@ func (db *DB) UpdateUpstreamServer(id int64, updates *UpstreamServerRecord) (*Up
 
 	query := `
 	UPDATE upstream_servers 
-	SET name = ?, url = ?, type = ?, headers = ?, timeout = ?, 
+	SET name = ?, url = ?, command = ?, type = ?, headers = ?, timeout = ?, 
 		enabled = ?, prefix = ?, description = ?,
 		auth_type = ?, auth_token = ?, auth_username = ?, auth_password = ?, auth_api_key = ?, auth_header_name = ?,
 		updated_at = CURRENT_TIMESTAMP
@@ -470,7 +479,7 @@ func (db *DB) UpdateUpstreamServer(id int64, updates *UpstreamServerRecord) (*Up
 	`
 
 	_, err = db.conn.Exec(query,
-		updates.Name, updates.URL, updates.Type, string(headersJSON),
+		updates.Name, updates.URL, string(commandJSON), updates.Type, string(headersJSON),
 		updates.Timeout, updates.Enabled, updates.Prefix, updates.Description,
 		updates.AuthType, encryptedToken, updates.AuthUsername, encryptedPassword, encryptedAPIKey, updates.AuthHeaderName,
 		id)
@@ -898,6 +907,7 @@ func (r *UpstreamServerRecord) ToUpstreamServer() *types.UpstreamServer {
 	upstream := &types.UpstreamServer{
 		Name:    r.Name,
 		URL:     r.URL,
+		Command: r.Command,
 		Type:    r.Type,
 		Headers: r.Headers,
 		Timeout: r.Timeout,
@@ -925,6 +935,7 @@ func FromUpstreamServer(server *types.UpstreamServer) *UpstreamServerRecord {
 	record := &UpstreamServerRecord{
 		Name:    server.Name,
 		URL:     server.URL,
+		Command: server.Command,
 		Type:    server.Type,
 		Headers: server.Headers,
 		Timeout: server.Timeout,
