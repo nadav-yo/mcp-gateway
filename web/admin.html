@@ -4,39 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCP Gateway - Admin Panel</title>
-    <link rel="stylesheet" href="/static/admin.css">
+    <link rel="stylesheet" href="/static/style.css">
     <script src="/static/statistics.js"></script>
+    <script src="/static/logs.js"></script>
+    <script src="/static/users.js"></script>
+    <script src="/static/tokens.js"></script>
+    <script src="/static/userinfo.js"></script>
     <script src="/static/admin.js"></script>
 </head>
 <body>
-    <!-- Login Form (shown when auth is enabled and user is not logged in) -->
-    <div id="loginContainer" class="login-container hidden">
-        <h2 style="text-align: center; margin-bottom: 30px; color: #007AFF;">MCP Gateway Login</h2>
-        <div id="loginError" class="error hidden"></div>
-        <form id="loginForm" class="login-form">
-            <div class="form-group">
-                <label for="username">Username:</label>
-                <input type="text" id="username" name="username" required>
-            </div>
-            <div class="form-group">
-                <label for="password">Password:</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            <button type="submit" class="btn">Login</button>
-        </form>
-        <p style="margin-top: 20px; text-align: center; color: #666; font-size: 14px;">
-            Default credentials: admin / password
-        </p>
-    </div>
-
+    <!-- User Info will be loaded here -->
+    <div id="userInfoPlaceholder"></div>
+    
     <!-- Main Admin Panel -->
     <div id="adminPanel" class="container">
-        <!-- Auth-specific elements -->
-        <button id="logoutBtn" class="btn btn-secondary logout-btn hidden">Logout</button>
-        
         <div class="header">
             <h1>MCP Gateway Admin Panel</h1>
-            <div id="userInfo" class="user-info hidden"></div>
             <p id="adminDescription">Manage your Model Context Protocol upstream servers</p>
         </div>
 
@@ -46,6 +29,7 @@
             <div class="tab" data-tab="stats">Statistics</div>
             <div class="tab" data-tab="logs">Logs</div>
             <div class="tab" data-tab="tokens">Token Management</div>
+            <div class="tab" data-tab="users">User Management</div>
         </div>
 
         <!-- Non-auth tabs (no token management) -->
@@ -55,93 +39,17 @@
             <div class="tab" data-tab="logs">Logs</div>
         </div>
 
-        <!-- Token Management Tab (auth only) -->
-        <div id="tokensTab" class="tab-content hidden">
-            <h2>API Access Tokens</h2>
-            <p style="margin-bottom: 20px; color: #86868b; font-size: 14px;">
-                Create and manage API tokens for external access to the MCP Gateway. These tokens can be used by applications, scripts, or tools to authenticate with the gateway API.
-                <br><strong>Note:</strong> Your current login session token is not shown here for security reasons.
-            </p>
-            <div id="tokenError" class="error hidden"></div>
-            <div id="tokenSuccess" class="success hidden"></div>
-            
-            <div class="create-token-form">
-                <h3>Create New API Token</h3>
-                <form id="createTokenForm">
-                    <div class="form-group">
-                        <label for="tokenDescription">Description:</label>
-                        <input type="text" id="tokenDescription" name="description" placeholder="e.g., VS Code Extension">
-                    </div>
-                    <div class="form-group">
-                        <label for="tokenExpiry">Expires In (optional):</label>
-                        <select id="tokenExpiry" name="expires_in" class="form-input">
-                            <option value="14d">14 days</option>
-                            <option value="30d">30 days</option>
-                            <option value="90d">90 days</option>
-                            <option value="1y">1 year</option>
-                            <option value="">Never expires</option>
-                        </select>
-                    </div>
-                    <button type="submit" class="btn">Create Token</button>
-                </form>
-            </div>
-
-            <div id="tokensList" class="tokens-list"></div>
-        </div>
+        <!-- Token Management Tab will be loaded here -->
+        <div id="tokensTabPlaceholder"></div>
 
         <!-- Statistics Tab will be loaded here -->
         <div id="statisticsTabPlaceholder"></div>
 
-        <!-- Logs Tab -->
-        <div id="logsTab" class="tab-content hidden">
-            <h2>Logs</h2>
-            <p style="margin-bottom: 20px; color: #86868b; font-size: 14px;">
-                View logs for the gateway and individual servers. Request logs capture all HTTP requests, while server logs capture individual server events.
-            </p>
-            
-            <div class="actions">
-                <button class="btn btn-secondary" onclick="loadServerLogs()">Refresh Logs List</button>
-                <div class="auto-refresh-toggle">
-                    <span class="toggle-label">Auto-refresh logs</span>
-                    <div class="toggle-switch" id="logsAutoRefreshToggle" onclick="toggleLogsAutoRefresh()">
-                        <div class="toggle-slider"></div>
-                    </div>
-                </div>
-                <span id="logsLastUpdateTime" class="last-update-time"></span>
-            </div>
-            
-            <div class="logs-container">
-                <div class="logs-list">
-                    <h3>Gateway Logs</h3>
-                    <div class="log-item" onclick="loadLog('request.log')">
-                        <div class="log-name">request.log</div>
-                        <div class="log-description">All HTTP requests with trace IDs and user information</div>
-                    </div>
-                    
-                    <h3>Available Server Logs</h3>
-                    <div id="logsListContainer">
-                        <div class="loading">Loading logs...</div>
-                    </div>
-                </div>
-                
-                <div class="log-viewer">
-                    <div class="log-viewer-header">
-                        <h3 id="logViewerTitle">Select a log to view</h3>
-                        <div class="log-controls">
-                            <button class="btn btn-small" onclick="refreshCurrentLog()" id="refreshLogBtn" disabled>Refresh</button>
-                            <button class="btn btn-small" onclick="downloadCurrentLog()" id="downloadLogBtn" disabled>Download</button>
-                            <label>
-                                <input type="checkbox" id="tailLogsCheckbox" onchange="toggleLogTail()"> 
-                                Tail (last 100 lines)
-                            </label>
-                        </div>
-                    </div>
-                    <div class="log-content" id="logContent">
-                        <div class="no-log-selected">Select a server log from the list to view its contents</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <!-- Logs Tab will be loaded here -->
+        <div id="logsTabPlaceholder"></div>
+
+        <!-- Users Tab will be loaded here -->
+        <div id="usersTabPlaceholder"></div>
 
         <!-- Servers Management Tab -->
         <div id="serversTab" class="tab-content hidden">

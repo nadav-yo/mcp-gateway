@@ -1,0 +1,50 @@
+<!-- Logs Tab -->
+<div id="logsTab" class="tab-content hidden">
+    <h2>Logs</h2>
+    <p style="margin-bottom: 20px; color: #86868b; font-size: 14px;">
+        View logs for the gateway and individual servers. Request logs capture all HTTP requests, while server logs capture individual server events.
+    </p>
+    
+    <div class="actions">
+        <button class="btn btn-secondary" onclick="adminPanel.logsTab.loadServerLogs()">Refresh Logs List</button>
+        <div class="auto-refresh-toggle">
+            <span class="toggle-label">Auto-refresh logs</span>
+            <div class="toggle-switch" id="logsAutoRefreshToggle" onclick="adminPanel.logsTab.toggleLogsAutoRefresh()">
+                <div class="toggle-slider"></div>
+            </div>
+        </div>
+        <span id="logsLastUpdateTime" class="last-update-time"></span>
+    </div>
+    
+    <div class="logs-container">
+        <div class="logs-list">
+            <h3>Gateway Logs</h3>
+            <div class="log-item" onclick="adminPanel.logsTab.loadLog('request.log')">
+                <div class="log-name">request.log</div>
+                <div class="log-description">All HTTP requests with trace IDs and user information</div>
+            </div>
+            
+            <h3>Available Server Logs</h3>
+            <div id="logsListContainer">
+                <div class="loading">Loading logs...</div>
+            </div>
+        </div>
+        
+        <div class="log-viewer">
+            <div class="log-viewer-header">
+                <h3 id="logViewerTitle">Select a log to view</h3>
+                <div class="log-controls">
+                    <button class="btn btn-small" onclick="adminPanel.logsTab.refreshCurrentLog()" id="refreshLogBtn" disabled>Refresh</button>
+                    <button class="btn btn-small" onclick="adminPanel.logsTab.downloadCurrentLog()" id="downloadLogBtn" disabled>Download</button>
+                    <label>
+                        <input type="checkbox" id="tailLogsCheckbox" onchange="adminPanel.logsTab.toggleLogTail()"> 
+                        Tail (last 100 lines)
+                    </label>
+                </div>
+            </div>
+            <div class="log-content" id="logContent">
+                <div class="no-log-selected">Select a server log from the list to view its contents</div>
+            </div>
+        </div>
+    </div>
+</div>

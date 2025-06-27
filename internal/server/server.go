@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -165,13 +168,184 @@ func (s *Server) Router() http.Handler {
 		s.authHandler.RegisterAdminRoutes(r)
 	}
 
-	r.HandleFunc("/admin", s.handleAdminPanel).Methods("GET")
+	// Web UI routes
+	r.HandleFunc("/ui", s.handleUI).Methods("GET")
+	r.HandleFunc("/ui/login", s.handleLoginPage).Methods("GET")
+	r.HandleFunc("/ui/admin", s.handleAdminPage).Methods("GET")
+	r.HandleFunc("/ui/user", s.handleUserPage).Methods("GET")
+	
+	// API health/info routes
 	r.HandleFunc("/health", s.handleHealth).Methods("GET")
 	r.HandleFunc("/info", s.handleInfo).Methods("GET")
-	// Static file serving for CSS and JS files
+	
+	// Static file serving for CSS, JS, and HTML files
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("web/"))))
 	
 	return r
+}
+
+// handleUI handles requests to the /ui path - redirects to appropriate page
+func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
+	if s.config.Security.EnableAuth {
+		// Check if user is authenticated
+		if s.isAuthenticated(r) {
+			// Authenticated - check if user is admin
+			if s.isUserAdmin(r) {
+				// Admin user - redirect to admin panel
+				http.Redirect(w, r, "/ui/admin", http.StatusFound)
+			} else {
+				// Regular user - redirect to user page
+				http.Redirect(w, r, "/ui/user", http.StatusFound)
+			}
+		} else {
+			// Not authenticated - redirect to login
+			http.Redirect(w, r, "/ui/login", http.StatusFound)
+		}
+	} else {
+		// No auth required - go straight to admin
+		http.Redirect(w, r, "/ui/admin", http.StatusFound)
+	}
+}
+
+// handleLoginPage serves the login page
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if s.config.Security.EnableAuth {
+		// Check if already authenticated
+		if s.isAuthenticated(r) {
+			// Already logged in - redirect to appropriate page based on role
+			if s.isUserAdmin(r) {
+				http.Redirect(w, r, "/ui/admin", http.StatusFound)
+			} else {
+				http.Redirect(w, r, "/ui/user", http.StatusFound)
+			}
+			return
+		}
+		// Serve standalone login page
+		s.serveHTMLWithAuth(w, "web/login.html")
+	} else {
+		// Auth disabled - redirect to admin
+		http.Redirect(w, r, "/ui/admin", http.StatusFound)
+	}
+}
+
+// handleAdminPage serves the admin panel (protected route for admins only)
+func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
+	if s.config.Security.EnableAuth {
+		// Check authentication
+		if !s.isAuthenticated(r) {
+			// Not authenticated - redirect to login
+			http.Redirect(w, r, "/ui/login", http.StatusFound)
+			return
+		}
+		
+		// Check if user is admin
+		if !s.isUserAdmin(r) {
+			// Authenticated but not admin - redirect to user page
+			http.Redirect(w, r, "/ui/user", http.StatusFound)
+			return
+		}
+	}
+	
+	// Serve admin panel with auth status injected
+	s.serveHTMLWithAuth(w, "web/admin.html")
+}
+
+// handleUserPage serves the user page (protected route for authenticated users)
+func (s *Server) handleUserPage(w http.ResponseWriter, r *http.Request) {
+	if s.config.Security.EnableAuth {
+		// Check authentication
+		if !s.isAuthenticated(r) {
+			// Not authenticated - redirect to login
+			http.Redirect(w, r, "/ui/login", http.StatusFound)
+			return
+		}
+	}
+	
+	// Serve user page with auth status injected
+	s.serveHTMLWithAuth(w, "web/user.html")
+}
+
+// isAuthenticated checks if the request has valid authentication
+func (s *Server) isAuthenticated(r *http.Request) bool {
+	// Try Authorization header first
+	authHeader := r.Header.Get("Authorization")
+	var token string
+	
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
+	} else {
+		// Try cookie
+		if cookie, err := r.Cookie("mcp_token"); err == nil {
+			token = cookie.Value
+		}
+	}
+	
+	if token == "" {
+		return false
+	}
+	
+	// Validate token
+	_, err := s.db.ValidateToken(token)
+	return err == nil
+}
+
+// isUserAdmin checks if the authenticated user has admin privileges
+func (s *Server) isUserAdmin(r *http.Request) bool {
+	// Try Authorization header first
+	authHeader := r.Header.Get("Authorization")
+	var token string
+	
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
+	} else {
+		// Try cookie
+		if cookie, err := r.Cookie("mcp_token"); err == nil {
+			token = cookie.Value
+		}
+	}
+	
+	if token == "" {
+		return false
+	}
+	
+	// Validate token and get token record
+	tokenRecord, err := s.db.ValidateToken(token)
+	if err != nil {
+		return false
+	}
+	
+	// Get user details to check admin status
+	user, err := s.db.GetUser(tokenRecord.UserID)
+	if err != nil {
+		return false
+	}
+	
+	return user.IsAdmin
+}
+
+// serveHTMLWithAuth serves an HTML file with auth status injected
+func (s *Server) serveHTMLWithAuth(w http.ResponseWriter, filePath string) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		s.logger.Error().Err(err).Str("file", filePath).Msg("Failed to read HTML file")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	
+	// Inject auth status
+	authEnabled := "false"
+	if s.config.Security.EnableAuth {
+		authEnabled = "true"
+	}
+	
+	htmlContent := string(content)
+	authScript := fmt.Sprintf(`    <script>window.AUTH_ENABLED = %s;</script>
+</head>`, authEnabled)
+	htmlContent = strings.Replace(htmlContent, "</head>", authScript, 1)
+	
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(htmlContent))
 }
 
 func (s *Server) Start() error {

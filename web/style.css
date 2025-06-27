@@ -18,6 +18,7 @@ body {
     max-width: 1200px;
     margin: 0 auto;
     padding: 40px 20px;
+    position: relative; /* Needed for absolute positioned user info */
 }
 
 /* Header styles */
@@ -872,5 +873,137 @@ body {
     
     .log-viewer {
         min-height: 300px;
+    }
+}
+
+/* User Management Styles */
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+}
+
+.users-table th,
+.users-table td {
+    padding: 15px 20px;
+    text-align: left;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.users-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #1d1d1f;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.users-table td {
+    color: #1d1d1f;
+    vertical-align: middle;
+}
+
+.users-table tr:last-child td {
+    border-bottom: none;
+}
+
+.user-name-cell {
+    font-weight: 600;
+    min-width: 200px;
+}
+
+.user-actions-cell {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.user-actions-cell .btn {
+    margin-left: 5px;
+}
+
+.badge {
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-left: 8px;
+}
+
+.admin-badge {
+    background: #007AFF;
+    color: white;
+}
+
+.current-user-badge {
+    background: #FF9500;
+    color: white;
+}
+
+.meta-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+}
+
+.meta-label {
+    font-weight: 600;
+    color: #1d1d1f;
+}
+
+.meta-value {
+    color: #86868b;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.users-section {
+    margin-top: 40px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+}
+
+.users-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 30px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.users-header h2 {
+    font-size: 24px;
+    font-weight: 600;
+    color: #1d1d1f;
+    margin: 0;
+}
+
+.users-list {
+    padding: 0;
+}
+
+/* Responsive design for user management */
+@media (max-width: 768px) {
+    .user-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+    }
+    
+    .user-actions {
+        align-self: stretch;
+        justify-content: center;
+    }
+    
+    .user-meta {
+        grid-template-columns: 1fr;
+    }
+    
+    .users-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
     }
 }

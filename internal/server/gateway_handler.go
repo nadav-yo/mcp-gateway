@@ -120,30 +120,6 @@ func (s *Server) handleRefreshConnections(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleAdminPanel serves the admin panel HTML
-func (s *Server) handleAdminPanel(w http.ResponseWriter, r *http.Request) {
-	// Always serve the same HTML file but inject auth configuration
-	adminFile := "web/admin.html"
-
-	// Try to read the admin panel HTML file
-	content, err := os.ReadFile(adminFile)
-	if err != nil {
-		s.logger.Error().Err(err).Str("file", adminFile).Msg("Failed to read admin panel file")
-		http.Error(w, "Admin panel not available", http.StatusInternalServerError)
-		return
-	}
-
-	// Inject auth configuration into the HTML
-	contentStr := string(content)
-	authConfig := fmt.Sprintf(`<script>window.AUTH_ENABLED = %t;</script>`, s.config.Security.EnableAuth)
-	
-	// Insert the auth configuration script before the closing </head> tag
-	contentStr = strings.Replace(contentStr, "</head>", authConfig+"\n</head>", 1)
-
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(contentStr))
-}
-
 // handleGenericLog handles requests for generic log files
 func (s *Server) handleGenericLog(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)

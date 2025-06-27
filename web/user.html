@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Gateway - User</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f7;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        h1 {
+            font-size: 48px;
+            font-weight: 600;
+            color: #1d1d1f;
+            margin: 0;
+            letter-spacing: -0.5px;
+        }
+        .subtitle {
+            font-size: 18px;
+            color: #86868b;
+            margin-top: 10px;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin: 20px 0;
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+            color: #666;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #34c759;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            color: #86868b;
+            font-size: 14px;
+        }
+        
+        /* Token Management Styles - only for token-specific buttons */
+        .hidden {
+            display: none;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #1d1d1f;
+        }
+        .form-input, input[type="text"], input[type="password"], select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #d1d1d6;
+            border-radius: 8px;
+            font-size: 16px;
+            background: white;
+            box-sizing: border-box;
+        }
+        .form-input:focus, input:focus, select:focus {
+            outline: none;
+            border-color: #007AFF;
+            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+        }
+        /* Only style primary action buttons (like Create Token) with blue */
+        .create-token-form .btn {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        .create-token-form .btn:hover {
+            background: #0056b3;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border: 1px solid #ffcdd2;
+        }
+        .success {
+            background: #e8f5e8;
+            color: #2e7d32;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border: 1px solid #c8e6c9;
+        }
+        .create-token-form {
+            border: 1px solid #e5e5e7;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            background: #fafafa;
+        }
+        .create-token-form h3 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #1d1d1f;
+        }
+        .tokens-list {
+            margin-top: 30px;
+        }
+        .token-item {
+            border: 1px solid #e5e5e7;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 10px 0;
+            background: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .token-info {
+            flex: 1;
+        }
+        .token-description {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        .token-meta {
+            color: #86868b;
+            font-size: 14px;
+            margin: 2px 0;
+        }
+        .loading {
+            text-align: center;
+            color: #86868b;
+            padding: 20px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <!-- User Info will be loaded here -->
+    <div id="userInfoPlaceholder"></div>
+    
+    <div class="container">
+        <div class="header">
+            <h1>MCP Gateway User Panel</h1>
+            <p class="subtitle">Model Context Protocol Gateway</p>
+        </div>
+        
+        <div class="card">
+            <div class="status">
+                <div class="status-indicator"></div>
+                <span>Gateway is running</span>
+            </div>
+            <p style="margin-top: 15px; color: #666;">
+                Welcome to the MCP Gateway user interface. This gateway facilitates communication 
+                between client applications and Model Context Protocol servers.
+            </p>
+        </div>
+
+        <!-- Token Management Section will be loaded here -->
+        <div id="tokensTabPlaceholder" class="card hidden"></div>
+        
+        <div class="footer">
+            <p>For administrative access, please contact your system administrator.</p>
+        </div>
+    </div>
+    
+    <script>
+        // Check if auth is enabled (injected by server)
+        const authEnabled = window.AUTH_ENABLED || false;
+        let tokenManager;
+        let userInfoManager;
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', async function() {
+            await loadUserInfoHTML();
+            await loadTokensHTML();
+            userInfoManager = new UserInfoManager();
+            
+            if (authEnabled) {
+                await checkAuthentication();
+                await userInfoManager.initialize();
+                initializeTokenManager();
+            } else {
+                await userInfoManager.initialize();
+            }
+        });
+        
+        async function loadUserInfoHTML() {
+            try {
+                const response = await fetch('/static/userinfo.html');
+                const html = await response.text();
+                document.getElementById('userInfoPlaceholder').innerHTML = html;
+            } catch (error) {
+                console.error('Error loading userinfo HTML:', error);
+            }
+        }
+        
+        async function loadTokensHTML() {
+            try {
+                const response = await fetch('/static/tokens.html');
+                const html = await response.text();
+                document.getElementById('tokensTabPlaceholder').innerHTML = html;
+                // Show the token section for authenticated users
+                document.getElementById('tokensTabPlaceholder').classList.remove('hidden');
+                // Remove the 'hidden' class from the tokensTab div inside the loaded HTML
+                const tokensTab = document.getElementById('tokensTab');
+                if (tokensTab) {
+                    tokensTab.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error('Error loading tokens HTML:', error);
+            }
+        }
+        
+        function initializeTokenManager() {
+            tokenManager = {
+                async loadTokens() {
+                    try {
+                        const token = localStorage.getItem('mcp_token');
+                        const response = await fetch(`/auth/tokens?_=${new Date().getTime()}`, {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                        }
+                        const tokens = await response.json();
+                        this.renderTokens(tokens);
+                    } catch (error) {
+                        console.error('Error loading tokens:', error);
+                        this.showError('Failed to load tokens: ' + error.message);
+                    }
+                },
+                
+                renderTokens(tokens) {
+                    const tokensList = document.getElementById('tokensList');
+                    
+                    if (!tokens || tokens.length === 0) {
+                        tokensList.innerHTML = '<div class="loading">No API tokens found. Create tokens here for external access to the MCP Gateway.</div>';
+                        return;
+                    }
+                    
+                    tokensList.innerHTML = tokens.map(token => `
+                        <div class="token-item">
+                            <div class="token-info">
+                                <div class="token-description">${this.escapeHtml(token.description || 'No description')}</div>
+                                <div class="token-meta">
+                                    Created: ${new Date(token.created_at).toLocaleDateString()}
+                                    ${token.expires_at ? ` | Expires: ${new Date(token.expires_at).toLocaleDateString()}` : ''}
+                                    ${token.last_used ? ` | Last used: ${new Date(token.last_used).toLocaleDateString()}` : ''}
+                                </div>
+                                <div class="token-meta">Token: ****...${token.token ? token.token.slice(-4) : '****'}</div>
+                            </div>
+                            <button class="btn btn-sm btn-danger" onclick="tokenManager.revokeToken(${token.id})">Revoke</button>
+                        </div>
+                    `).join('');
+                },
+                
+                async createToken() {
+                    const description = document.getElementById('tokenDescription').value;
+                    const expiresIn = document.getElementById('tokenExpiry').value;
+                    
+                    // Convert expiry period to actual date
+                    let expiresAt = null;
+                    if (expiresIn) {
+                        const now = new Date();
+                        switch (expiresIn) {
+                            case '14d':
+                                expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+                                break;
+                            case '30d':
+                                expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+                                break;
+                            case '90d':
+                                expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+                                break;
+                            case '1y':
+                                expiresAt = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+                                break;
+                        }
+                    }
+                    
+                    try {
+                        const token = localStorage.getItem('mcp_token');
+                        const response = await fetch('/auth/tokens', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                description,
+                                expires_at: expiresAt ? expiresAt.toISOString() : null
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            const tokenData = await response.json();
+                            const tokenValue = tokenData.token;
+                            
+                            // Show success message with the actual token value
+                            const successMessage = `
+                                <strong>Token created successfully!</strong><br>
+                                <div style="margin-top: 10px; padding: 10px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; display: flex; align-items: center; gap: 10px;">
+                                    <div style="flex: 1; font-family: monospace; word-break: break-all;">${tokenValue}</div>
+                                    <button onclick="copyToClipboard('${tokenValue}', this)" style="padding: 4px 8px; background: #007AFF; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap;">
+                                        Copy
+                                    </button>
+                                </div>
+                                <div style="margin-top: 10px; color: #dc3545; font-weight: bold;">
+                                    ⚠️ This token will not be shown again. Please copy it now!
+                                </div>
+                            `;
+                            this.showSuccess(successMessage);
+                            
+                            document.getElementById('createTokenForm').reset();
+                            await this.loadTokens();
+                        } else {
+                            const error = await response.text();
+                            this.showError(error);
+                        }
+                    } catch (error) {
+                        this.showError('Failed to create token: ' + error.message);
+                    }
+                },
+                
+                async revokeToken(tokenId) {
+                    if (!confirm('Are you sure you want to revoke this token?')) {
+                        return;
+                    }
+                    
+                    try {
+                        const token = localStorage.getItem('mcp_token');
+                        const response = await fetch(`/auth/tokens/revoke?id=${tokenId}`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            this.showSuccess('Token revoked successfully');
+                            await this.loadTokens();
+                        } else {
+                            const errorText = await response.text();
+                            this.showError('Failed to revoke token: ' + errorText);
+                        }
+                    } catch (error) {
+                        this.showError('Failed to revoke token: ' + error.message);
+                    }
+                },
+                
+                showError(message) {
+                    const errorDiv = document.getElementById('tokenError');
+                    errorDiv.innerHTML = message;
+                    errorDiv.classList.remove('hidden');
+                    document.getElementById('tokenSuccess').classList.add('hidden');
+                },
+                
+                showSuccess(message) {
+                    const successDiv = document.getElementById('tokenSuccess');
+                    successDiv.innerHTML = message;
+                    successDiv.classList.remove('hidden');
+                    document.getElementById('tokenError').classList.add('hidden');
+                },
+                
+                escapeHtml(text) {
+                    const div = document.createElement('div');
+                    div.textContent = text;
+                    return div.innerHTML;
+                }
+            };
+            
+            // Load tokens when page loads
+            tokenManager.loadTokens();
+            
+            // Set up form submission handler
+            document.getElementById('createTokenForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                tokenManager.createToken();
+            });
+        }
+        
+        async function checkAuthentication() {
+            const token = localStorage.getItem('mcp_token');
+            if (!token) {
+                // No token, redirect to login
+                window.location.href = '/ui/login';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/auth/me', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    // Token invalid, redirect to login
+                    localStorage.removeItem('mcp_token');
+                    window.location.href = '/ui/login';
+                    return;
+                }
+                
+                const userData = await response.json();
+                if (userData.is_admin) {
+                    // User is admin, redirect to admin page
+                    window.location.href = '/ui/admin';
+                }
+            } catch (error) {
+                console.error('Authentication check failed:', error);
+                window.location.href = '/ui/login';
+            }
+        }
+        
+        function copyToClipboard(text, buttonElement) {
+            navigator.clipboard.writeText(text).then(() => {
+                // Temporarily change button text to show success
+                const originalText = buttonElement.textContent;
+                buttonElement.textContent = 'Copied!';
+                buttonElement.style.background = '#28a745';
+                
+                setTimeout(() => {
+                    buttonElement.textContent = originalText;
+                    buttonElement.style.background = '#007AFF';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    // Show success feedback
+                    const originalText = buttonElement.textContent;
+                    buttonElement.textContent = 'Copied!';
+                    buttonElement.style.background = '#28a745';
+                    
+                    setTimeout(() => {
+                        buttonElement.textContent = originalText;
+                        buttonElement.style.background = '#007AFF';
+                    }, 2000);
+                } catch (err) {
+                    console.error('Fallback copy failed: ', err);
+                }
+                document.body.removeChild(textArea);
+            });
+        }
+    </script>
+    <script src="/static/userinfo.js"></script>
+</body>
+</html>

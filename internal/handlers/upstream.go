@@ -506,21 +506,15 @@ func (h *UpstreamHandler) ListServerLogs(w http.ResponseWriter, r *http.Request)
 			// Extract server ID from filename
 			var serverID int64
 			if n, err := fmt.Sscanf(logFile, "server-%d.log", &serverID); n == 1 && err == nil {
-				// Try to get server info
-				var serverName string
 				if server, err := h.db.GetUpstreamServer(serverID); err == nil {
-					serverName = server.Name
-				} else {
-					serverName = "Unknown (deleted)"
+					logs = append(logs, map[string]interface{}{
+						"filename":   logFile,
+						"server_id":  serverID,
+						"server_name": server.Name,
+						"size":       info.Size(),
+						"modified":   info.ModTime(),
+					})
 				}
-
-				logs = append(logs, map[string]interface{}{
-					"filename":   logFile,
-					"server_id":  serverID,
-					"server_name": serverName,
-					"size":       info.Size(),
-					"modified":   info.ModTime(),
-				})
 			}
 		}
 	}

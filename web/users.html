@@ -1,0 +1,54 @@
+<!-- User Management Tab -->
+<div id="usersTab" class="tab-content hidden">
+    <h2>User Management</h2>
+    <p style="margin-bottom: 20px; color: #86868b; font-size: 14px;">
+        Create and manage user accounts for the MCP Gateway. Admin users have full access to manage servers, view logs, and manage other users.
+    </p>
+    <div id="userError" class="error hidden"></div>
+    <div id="userSuccess" class="success hidden"></div>
+    
+    <div class="actions">
+        <button class="btn" onclick="showAddUserModal()">Add User</button>
+        <button class="btn btn-secondary" onclick="userManager.loadUsers()">Reload</button>
+    </div>
+    
+    <div class="users-section">
+        <div class="users-header">
+            <h2>Users</h2>
+            <span id="userCount">0 users</span>
+        </div>
+        <div class="users-list" id="usersList">
+            <div class="loading">Loading users...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal" id="addUserModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Add User</h3>
+            <button class="close-btn" onclick="closeAddUserModal()">&times;</button>
+        </div>
+        <form id="addUserForm">
+            <div class="form-group">
+                <label class="form-label">Username *</label>
+                <input type="text" class="form-input" id="addUsername" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password *</label>
+                <input type="password" class="form-input" id="addPassword" required>
+            </div>
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="addUserIsAdmin">
+                    <label for="addUserIsAdmin">Admin User</label>
+                </div>
+            </div>
+            <div class="actions">
+                <button type="submit" class="btn">Create User</button>
+                <button type="button" class="btn btn-secondary" onclick="closeAddUserModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

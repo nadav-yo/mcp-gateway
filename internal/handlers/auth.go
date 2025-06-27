@@ -130,8 +130,6 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-
-	h.logger.Info().Str("username", user.Username).Msg("User logged in successfully")
 }
 
 // HandleCreateToken handles requests to create new tokens
@@ -486,6 +484,26 @@ func (h *AuthHandler) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		Msg("User deleted successfully")
 }
 
+// HandleLogout handles user logout requests - revokes the current session token
+func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	// Get user from context (set by auth middleware)
+	user, ok := r.Context().Value("user").(*database.TokenRecord)
+	if !ok {
+		// Already logged out or invalid token
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Revoke the current token
+	err := h.db.RevokeToken(user.ID, user.UserID)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("Failed to revoke current token during logout")
+		// Don't fail the logout if token revocation fails - client should still clear cookies
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // AuthMiddleware provides authentication middleware for HTTP requests
 func (h *AuthHandler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -541,10 +559,6 @@ func (h *AuthHandler) AdminMiddleware(next http.Handler) http.Handler {
 
 			// Check if user is admin
 			if !user.IsAdmin {
-				h.logger.Warn().
-					Str("username", user.Username).
-					Str("endpoint", r.URL.Path).
-					Msg("Non-admin user attempted to access admin endpoint")
 				http.Error(w, "Admin access required", http.StatusForbidden)
 				return
 			}
@@ -563,6 +577,8 @@ func (h *AuthHandler) RegisterRoutes(router *mux.Router) {
 	// Protected routes (authentication required)
 	authRouter := router.PathPrefix("/auth").Subrouter()
 	authRouter.Use(h.AuthMiddleware)
+	authRouter.HandleFunc("/me", h.HandleMe).Methods("GET")
+	authRouter.HandleFunc("/logout", h.HandleLogout).Methods("POST")
 	authRouter.HandleFunc("/tokens", h.HandleCreateToken).Methods("POST")
 	authRouter.HandleFunc("/tokens", h.HandleListTokens).Methods("GET")
 	authRouter.HandleFunc("/tokens/revoke", h.HandleRevokeToken).Methods("DELETE")
@@ -578,4 +594,37 @@ func (h *AuthHandler) RegisterAdminRoutes(router *mux.Router) {
 	adminRouter.HandleFunc("/users/{id:[0-9]+}", h.HandleGetUser).Methods("GET")
 	adminRouter.HandleFunc("/users/{id:[0-9]+}", h.HandleUpdateUser).Methods("PUT")
 	adminRouter.HandleFunc("/users/{id:[0-9]+}", h.HandleDeleteUser).Methods("DELETE")
+}
+
+// HandleMe returns information about the currently authenticated user
+func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
+	// Get token record from context (set by AuthMiddleware)
+	tokenRecord, ok := r.Context().Value("user").(*database.TokenRecord)
+	if !ok {
+		h.logger.Error().Msg("User context not found in HandleMe")
+		http.Error(w, "User context not found", http.StatusInternalServerError)
+		return
+	}
+
+	// Get full user details
+	user, err := h.db.GetUser(tokenRecord.UserID)
+	if err != nil {
+		h.logger.Error().Err(err).Int64("user_id", tokenRecord.UserID).Msg("Failed to get user")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Return user info
+	userInfo := UserInfo{
+		ID:       user.ID,
+		Username: user.Username,
+		IsActive: user.IsActive,
+		IsAdmin:  user.IsAdmin,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(userInfo); err != nil {
+		h.logger.Error().Err(err).Msg("Failed to encode user info response")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }

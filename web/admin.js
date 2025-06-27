@@ -25,30 +25,72 @@ class AdminPanel {
             this.token = localStorage.getItem('mcp_token');
         }
         
+        // Initialize user info component
+        this.userInfoManager = new UserInfoManager();
+        
         // Initialize statistics tab
         this.statisticsTab = new StatisticsTab(this);
+        
+        // Initialize logs tab
+        this.logsTab = new LogsTab(this);
+        
+        // Initialize user management (only for auth mode)
+        if (this.authEnabled) {
+            this.userManager = new UserManager(this);
+            // Make userManager globally accessible for onclick handlers
+            window.userManager = this.userManager;
+            
+            // Initialize token management
+            this.tokenManager = new TokenManager(this);
+            // Make tokenManager globally accessible for onclick handlers
+            window.tokenManager = this.tokenManager;
+        }
         
         this.init();
     }
 
+    async loadUserInfoHTML() {
+        try {
+            const response = await fetch('/static/userinfo.html');
+            const html = await response.text();
+            document.getElementById('userInfoPlaceholder').innerHTML = html;
+        } catch (error) {
+            console.error('Error loading userinfo HTML:', error);
+        }
+    }
+
     async init() {
-        // Load statistics HTML
-        await this.loadStatisticsHTML();
+        // Load modular HTML components
+        await Promise.all([
+            this.loadUserInfoHTML(),
+            this.loadStatisticsHTML(),
+            this.loadLogsHTML(),
+            ...(this.authEnabled ? [this.loadUsersHTML(), this.loadTokensHTML()] : [])
+        ]);
+        
+        this.setupEventListeners();
         
         if (this.authEnabled) {
             this.setupAuthUI();
+            // Since we're on the admin page, we're already authenticated
+            // Get token from localStorage or try to validate
             if (this.token) {
-                await this.checkAuth();
+                await this.userInfoManager.initialize();
+                this.showAdminPanel(true);
+                await this.tokenManager.loadTokens();
+                await this.loadInitialData();
+                this.startAutoRefresh();
             } else {
-                this.showLogin();
+                // No token in localStorage, redirect to login
+                window.location.href = '/ui/login';
             }
         } else {
+            // No auth required
             this.showAdminPanel(false);
+            await this.userInfoManager.initialize();
+            await this.loadInitialData();
+            this.startAutoRefresh();
         }
-        
-        this.setupEventListeners();
-        await this.loadInitialData();
-        this.startAutoRefresh();
     }
 
     async loadStatisticsHTML() {
@@ -60,12 +102,38 @@ class AdminPanel {
             console.error('Error loading statistics HTML:', error);
         }
     }
+
+    async loadLogsHTML() {
+        try {
+            const response = await fetch('/static/logs.html');
+            const html = await response.text();
+            document.getElementById('logsTabPlaceholder').innerHTML = html;
+        } catch (error) {
+            console.error('Error loading logs HTML:', error);
+        }
+    }
+
+    async loadUsersHTML() {
+        try {
+            const response = await fetch('/static/users.html');
+            const html = await response.text();
+            document.getElementById('usersTabPlaceholder').innerHTML = html;
+        } catch (error) {
+            console.error('Error loading users HTML:', error);
+        }
+    }
+
+    async loadTokensHTML() {
+        try {
+            const response = await fetch('/static/tokens.html');
+            const html = await response.text();
+            document.getElementById('tokensTabPlaceholder').innerHTML = html;
+        } catch (error) {
+            console.error('Error loading tokens HTML:', error);
+        }
+    }
     
     setupAuthUI() {
-        // Show auth-specific elements
-        document.getElementById('logoutBtn').classList.remove('hidden');
-        document.getElementById('userInfo').classList.remove('hidden');
-        
         // Hide description for auth mode
         document.getElementById('adminDescription').style.display = 'none';
     }
@@ -75,9 +143,11 @@ class AdminPanel {
             const response = await this.makeAuthenticatedRequest('/auth/tokens');
             if (response.ok) {
                 this.showAdminPanel(true);
-                if (this.authEnabled) {
-                    await this.loadTokens();
+                if (this.authEnabled && this.tokenManager) {
+                    await this.tokenManager.loadTokens();
                 }
+                await this.loadInitialData();
+                this.startAutoRefresh();
             } else {
                 this.logout();
             }
@@ -106,8 +176,11 @@ class AdminPanel {
                 this.user = data.user;
                 localStorage.setItem('mcp_token', this.token);
                 this.showAdminPanel(true);
-                await this.loadTokens();
+                if (this.tokenManager) {
+                    await this.tokenManager.loadTokens();
+                }
                 await this.loadInitialData();
+                this.startAutoRefresh();
             } else {
                 const error = await response.text();
                 this.showError('loginError', error);
@@ -117,22 +190,59 @@ class AdminPanel {
         }
     }
 
-    logout() {
+    async logout() {
         this.stopAutoRefresh();
+        
+        // Call server-side logout to revoke token
+        if (this.token) {
+            try {
+                await fetch('/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${this.token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+            } catch (error) {
+                console.log('Logout API call failed:', error);
+                // Continue with client-side logout even if server call fails
+            }
+        }
+        
+        // Clear client-side state
         this.token = null;
         this.user = null;
         localStorage.removeItem('mcp_token');
-        this.showLogin();
+        
+        // Clear cookie
+        document.cookie = 'mcp_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=strict';
+        
+        // Redirect to login page
+        window.location.href = '/ui/login';
     }
 
     showLogin() {
-        document.getElementById('loginContainer').classList.remove('hidden');
-        document.getElementById('adminPanel').classList.add('hidden');
+        const loginContainer = document.getElementById('loginContainer');
+        const adminPanel = document.getElementById('adminPanel');
+        
+        if (loginContainer) {
+            loginContainer.classList.remove('hidden');
+        }
+        if (adminPanel) {
+            adminPanel.classList.add('hidden');
+        }
     }
 
     showAdminPanel(isAuthenticated) {
-        document.getElementById('loginContainer').classList.add('hidden');
-        document.getElementById('adminPanel').classList.remove('hidden');
+        const loginContainer = document.getElementById('loginContainer');
+        const adminPanel = document.getElementById('adminPanel');
+        
+        if (loginContainer) {
+            loginContainer.classList.add('hidden');
+        }
+        if (adminPanel) {
+            adminPanel.classList.remove('hidden');
+        }
         
         if (isAuthenticated && this.user) {
             document.getElementById('userInfo').textContent = `Logged in as: ${this.user.username}`;
@@ -159,38 +269,45 @@ class AdminPanel {
     }
 
     setupEventListeners() {
-        // Login form
-        if (this.authEnabled) {
-            document.getElementById('loginForm').addEventListener('submit', (e) => {
+        // Tab switching (for both auth and non-auth modes)
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', async (e) => {
+                await this.switchTab(e.target.dataset.tab);
+            });
+        });
+
+        // Login form - use event delegation since it's loaded dynamically
+        document.addEventListener('submit', (e) => {
+            if (e.target.id === 'loginForm') {
                 e.preventDefault();
                 this.login();
-            });
-            
-            document.getElementById('logoutBtn').addEventListener('click', () => {
-                this.logout();
-            });
-            
-            // Tab switching
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.addEventListener('click', (e) => {
-                    this.switchTab(e.target.dataset.tab);
-                });
-            });
-            
-            // Token form
-            document.getElementById('createTokenForm').addEventListener('submit', (e) => {
+            }
+            if (e.target.id === 'createTokenForm') {
                 e.preventDefault();
-                this.createToken();
-            });
-        }
+                if (this.tokenManager) {
+                    this.tokenManager.createToken();
+                }
+            }
+        });
     }
 
-    switchTab(tabName) {
-        // Update active tab
+    async switchTab(tabName) {
+        // Update active tab - be specific about which tab container is visible
         document.querySelectorAll('.tab').forEach(tab => {
             tab.classList.remove('active');
         });
-        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        
+        // Find the active tab button in the visible tab container
+        const authTabs = document.getElementById('authTabs');
+        const noAuthTabs = document.getElementById('noAuthTabs');
+        const visibleTabContainer = authTabs && !authTabs.classList.contains('hidden') ? authTabs : noAuthTabs;
+        
+        if (visibleTabContainer) {
+            const activeTabButton = visibleTabContainer.querySelector(`[data-tab="${tabName}"]`);
+            if (activeTabButton) {
+                activeTabButton.classList.add('active');
+            }
+        }
         
         // Show/hide content
         document.querySelectorAll('.tab-content').forEach(content => {
@@ -198,8 +315,8 @@ class AdminPanel {
         });
         
         // Stop logs auto-refresh when leaving logs tab
-        if (tabName !== 'logs') {
-            stopLogsAutoRefresh();
+        if (tabName !== 'logs' && this.logsTab) {
+            this.logsTab.stopLogsAutoRefresh();
         }
         
         // Show the appropriate tab content
@@ -211,15 +328,52 @@ class AdminPanel {
                 document.getElementById('serversTab').classList.remove('hidden');
                 break;
             case 'stats':
-                document.getElementById('statsTab').classList.remove('hidden');
-                // Load stats when switching to stats tab
-                this.statisticsTab.loadStatsForTab();
+                await this.ensureStatsTabLoaded();
+                const statsTab = document.getElementById('statsTab');
+                if (statsTab) {
+                    statsTab.classList.remove('hidden');
+                    // Load stats when switching to stats tab
+                    this.statisticsTab.loadStatsForTab();
+                }
                 break;
             case 'logs':
-                document.getElementById('logsTab').classList.remove('hidden');
-                // Load logs when switching to logs tab
-                loadServerLogs();
+                await this.ensureLogsTabLoaded();
+                const logsTab = document.getElementById('logsTab');
+                if (logsTab) {
+                    logsTab.classList.remove('hidden');
+                    // Load logs when switching to logs tab
+                    this.logsTab.loadServerLogs();
+                }
                 break;
+            case 'users':
+                await this.ensureUsersTabLoaded();
+                const usersTab = document.getElementById('usersTab');
+                if (usersTab) {
+                    usersTab.classList.remove('hidden');
+                    // Initialize and load users when switching to users tab
+                    if (this.userManager) {
+                        await this.userManager.init();
+                    }
+                }
+                break;
+        }
+    }
+
+    async ensureStatsTabLoaded() {
+        if (!document.getElementById('statsTab')) {
+            await this.loadStatisticsHTML();
+        }
+    }
+
+    async ensureLogsTabLoaded() {
+        if (!document.getElementById('logsTab')) {
+            await this.loadLogsHTML();
+        }
+    }
+
+    async ensureUsersTabLoaded() {
+        if (!document.getElementById('usersTab')) {
+            await this.loadUsersHTML();
         }
     }
 
@@ -319,147 +473,6 @@ class AdminPanel {
             };
         }
         return fetch(url, options);
-    }
-
-    // Token management methods (auth only)
-    async loadTokens() {
-        if (!this.authEnabled) return;
-        
-        try {
-            // Add cache busting parameter
-            const response = await this.makeAuthenticatedRequest(`/auth/tokens?_=${new Date().getTime()}`);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-            }
-            const tokens = await response.json();
-            this.renderTokens(tokens);
-        } catch (error) {
-            console.error('Error loading tokens:', error);
-            this.showError('tokenError', 'Failed to load tokens: ' + error.message);
-        }
-    }
-
-    renderTokens(tokens) {
-        const tokensList = document.getElementById('tokensList');
-        
-        if (!tokens || tokens.length === 0) {
-            tokensList.innerHTML = '<div class="loading">No API tokens found. Create tokens here for external access to the MCP Gateway.</div>';
-            return;
-        }
-        
-        tokensList.innerHTML = tokens.map(token => `
-            <div class="token-item">
-                <div class="token-info">
-                    <div class="token-description">${this.escapeHtml(token.description || 'No description')}</div>
-                    <div class="token-meta">
-                        Created: ${new Date(token.created_at).toLocaleDateString()}
-                        ${token.expires_at ? ` | Expires: ${new Date(token.expires_at).toLocaleDateString()}` : ''}
-                        ${token.last_used ? ` | Last used: ${new Date(token.last_used).toLocaleDateString()}` : ''}
-                    </div>
-                    <div class="token-meta">Token: ****...${token.token ? token.token.slice(-4) : '****'}</div>
-                </div>
-                <button class="btn btn-sm btn-danger" onclick="adminPanel.revokeToken(${token.id})">Revoke</button>
-            </div>
-        `).join('');
-    }
-
-    async createToken() {
-        if (!this.authEnabled) return;
-        
-        const description = document.getElementById('tokenDescription').value;
-        const expiresIn = document.getElementById('tokenExpiry').value;
-        
-        // Convert expiry period to actual date
-        let expiresAt = null;
-        if (expiresIn) {
-            const now = new Date();
-            switch (expiresIn) {
-                case '14d':
-                    expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-                    break;
-                case '30d':
-                    expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-                    break;
-                case '90d':
-                    expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
-                    break;
-                case '1y':
-                    expiresAt = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
-                    break;
-            }
-        }
-        
-        try {
-            const response = await this.makeAuthenticatedRequest('/auth/tokens', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    description,
-                    expires_at: expiresAt ? expiresAt.toISOString() : null
-                })
-            });
-            
-            if (response.ok) {
-                const tokenData = await response.json();
-                const tokenValue = tokenData.token;
-                
-                // Show success message with the actual token value
-                const successMessage = `
-                    <strong>Token created successfully!</strong><br>
-                    <div style="margin-top: 10px; padding: 10px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; display: flex; align-items: center; gap: 10px;">
-                        <div style="flex: 1; font-family: monospace; word-break: break-all;">${tokenValue}</div>
-                        <button onclick="adminPanel.copyToClipboard('${tokenValue}', this)" style="padding: 4px 8px; background: #007AFF; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap;">
-                            Copy
-                        </button>
-                    </div>
-                    <div style="margin-top: 10px; color: #dc3545; font-weight: bold;">
-                        ⚠️ This token will not be shown again. Please copy it now!
-                    </div>
-                `;
-                this.showSuccess('tokenSuccess', successMessage);
-                
-                document.getElementById('createTokenForm').reset();
-                await this.loadTokens();
-            } else {
-                const error = await response.text();
-                this.showError('tokenError', error);
-            }
-        } catch (error) {
-            this.showError('tokenError', 'Failed to create token: ' + error.message);
-        }
-    }
-
-    async revokeToken(tokenId) {
-        if (!this.authEnabled) return;
-        
-        if (!confirm('Are you sure you want to revoke this token?')) {
-            return;
-        }
-        
-        try {
-            console.log('Revoking token ID:', tokenId);
-            const response = await this.makeAuthenticatedRequest(`/auth/tokens/revoke?id=${tokenId}`, {
-                method: 'DELETE'
-            });
-            
-            console.log('Revoke response status:', response.status);
-            
-            if (response.ok) {
-                console.log('Token revoked successfully, reloading token list...');
-                this.showSuccess('tokenSuccess', 'Token revoked successfully');
-                // Reload the tokens list immediately
-                await this.loadTokens();
-            } else {
-                const errorText = await response.text();
-                console.error('Revoke token error:', errorText);
-                this.showError('tokenError', 'Failed to revoke token: ' + errorText);
-            }
-        } catch (error) {
-            console.error('Revoke token exception:', error);
-            this.showError('tokenError', 'Failed to revoke token: ' + error.message);
-        }
     }
 
     // Cache management
@@ -776,23 +789,9 @@ class AdminPanel {
         return div.innerHTML;
     }
 
-    viewServerLogs(serverId, serverName) {
-        // Switch to logs tab
-        this.switchTab('logs');
-        
-        // Wait a moment for the tab to load, then select the server log
-        setTimeout(() => {
-            loadServerLogs().then(() => {
-                // Find and click the log item for this server
-                const logItems = document.querySelectorAll('.log-item');
-                logItems.forEach(item => {
-                    const nameElement = item.querySelector('.log-item-name');
-                    if (nameElement && nameElement.textContent === serverName) {
-                        item.click();
-                    }
-                });
-            });
-        }, 100);
+    async viewServerLogs(serverId, serverName) {
+        // Delegate to logs tab
+        await this.logsTab.viewServerLogs(serverId, serverName);
     }
 
     updateLastRefreshTime() {
@@ -870,6 +869,8 @@ class AdminPanel {
 
 // Global functions for onclick handlers
 let adminPanel;
+let userManager;
+let tokenManager;
 
 document.addEventListener('DOMContentLoaded', function() {
     adminPanel = new AdminPanel();
@@ -1105,269 +1106,3 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Logs functionality
-let currentLogServerId = null;
-let currentLogFilename = null;
-let logsAutoRefreshEnabled = false;
-let logsAutoRefreshTimer = null;
-
-async function loadServerLogs() {
-    try {
-        const response = await adminPanel.makeAuthenticatedRequest('/api/logs');
-        const result = await response.json();
-        
-        if (result.success) {
-            displayLogsList(result.data.logs);
-        } else {
-            throw new Error(result.error || 'Failed to load logs');
-        }
-    } catch (error) {
-        console.error('Error loading logs:', error);
-        document.getElementById('logsListContainer').innerHTML = 
-            '<div class="error">Error loading logs: ' + error.message + '</div>';
-    }
-}
-
-function displayLogsList(logs) {
-    const container = document.getElementById('logsListContainer');
-    
-    if (logs.length === 0) {
-        container.innerHTML = '<div class="no-logs">No log files found</div>';
-        return;
-    }
-    
-    const logsHTML = logs.map(log => `
-        <div class="log-item" onclick="selectLog(${log.server_id}, '${log.server_name}', '${log.filename}')">
-            <div class="log-item-name">${log.server_name}</div>
-            <div class="log-item-info">
-                ID: ${log.server_id} | Size: ${formatFileSize(log.size)} | 
-                Modified: ${new Date(log.modified).toLocaleString()}
-            </div>
-        </div>
-    `).join('');
-    
-    container.innerHTML = logsHTML;
-}
-
-async function loadLog(filename) {
-    // Update active state
-    document.querySelectorAll('.log-item').forEach(item => item.classList.remove('active'));
-    event.target.closest('.log-item').classList.add('active');
-    
-    currentLogServerId = null; // Clear server ID for generic logs
-    currentLogFilename = filename;
-    
-    // Update log viewer header
-    document.getElementById('logViewerTitle').textContent = `Gateway Log: ${filename}`;
-    document.getElementById('refreshLogBtn').disabled = false;
-    document.getElementById('downloadLogBtn').disabled = false;
-    
-    // Load log content
-    await loadGenericLogContent(filename);
-}
-
-async function selectLog(serverId, serverName, filename) {
-    // Update active state
-    document.querySelectorAll('.log-item').forEach(item => item.classList.remove('active'));
-    event.target.closest('.log-item').classList.add('active');
-    
-    currentLogServerId = serverId;
-    
-    // Update log viewer header
-    document.getElementById('logViewerTitle').textContent = `Logs for ${serverName}`;
-    document.getElementById('refreshLogBtn').disabled = false;
-    document.getElementById('downloadLogBtn').disabled = false;
-    
-    // Load log content
-    await loadLogContent(serverId);
-}
-
-async function loadLogContent(serverId) {
-    const logContent = document.getElementById('logContent');
-    const tailCheckbox = document.getElementById('tailLogsCheckbox');
-    
-    try {
-        let url = `/api/upstream-servers/${serverId}/logs`;
-        if (tailCheckbox.checked) {
-            url += '?tail=true&lines=100';
-        }
-        
-        const response = await adminPanel.makeAuthenticatedRequest(url);
-        const result = await response.json();
-        
-        if (result.success) {
-            if (result.data.content.trim() === '') {
-                logContent.innerHTML = '<div class="no-log-selected">Log file is empty</div>';
-            } else {
-                const lines = result.data.content.split('\n').map(line => 
-                    `<div class="log-line">${escapeHtml(line)}</div>`
-                ).join('');
-                logContent.innerHTML = lines;
-                
-                // Auto-scroll to bottom
-                logContent.scrollTop = logContent.scrollHeight;
-            }
-            updateLogsLastRefreshTime();
-        } else {
-            logContent.innerHTML = `<div class="error">Error loading log: ${result.error}</div>`;
-        }
-    } catch (error) {
-        console.error('Error loading log content:', error);
-        logContent.innerHTML = `<div class="error">Error loading log: ${error.message}</div>`;
-    }
-}
-
-async function loadGenericLogContent(filename) {
-    const logContent = document.getElementById('logContent');
-    const tailCheckbox = document.getElementById('tailLogsCheckbox');
-    
-    try {
-        let url = `/api/logs/${filename}`;
-        if (tailCheckbox.checked) {
-            url += '?tail=true&lines=100';
-        }
-        
-        const response = await adminPanel.makeAuthenticatedRequest(url);
-        const result = await response.json();
-        
-        if (result.success) {
-            if (result.data.content.trim() === '') {
-                logContent.innerHTML = '<div class="no-log-content">This log file is empty</div>';
-            } else {
-                const lines = result.data.content.split('\n').map(line => 
-                    `<div class="log-line">${escapeHtml(line)}</div>`
-                ).join('');
-                logContent.innerHTML = lines;
-                
-                // Auto-scroll to bottom
-                logContent.scrollTop = logContent.scrollHeight;
-            }
-            updateLogsLastRefreshTime();
-        } else {
-            logContent.innerHTML = `<div class="error">Error loading log: ${result.error}</div>`;
-        }
-    } catch (error) {
-        console.error('Error loading log content:', error);
-        logContent.innerHTML = `<div class="error">Error loading log: ${error.message}</div>`;
-    }
-}
-
-function refreshCurrentLog() {
-    if (currentLogServerId) {
-        loadLogContent(currentLogServerId);
-    } else if (currentLogFilename) {
-        loadGenericLogContent(currentLogFilename);
-    }
-}
-
-async function downloadCurrentLog() {
-    if (currentLogServerId) {
-        try {
-            const url = `/api/upstream-servers/${currentLogServerId}/logs?download=true`;
-            const response = await adminPanel.makeAuthenticatedRequest(url);
-            
-            if (response.ok) {
-                const blob = await response.blob();
-                const downloadUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = downloadUrl;
-                a.download = `server-${currentLogServerId}.log`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(downloadUrl);
-            } else {
-                alert('Failed to download log file');
-            }
-        } catch (error) {
-            console.error('Error downloading log:', error);
-            alert('Error downloading log: ' + error.message);
-        }
-    } else if (currentLogFilename) {
-        try {
-            const url = `/api/logs/${currentLogFilename}?download=true`;
-            const response = await adminPanel.makeAuthenticatedRequest(url);
-            
-            if (response.ok) {
-                const blob = await response.blob();
-                const downloadUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = downloadUrl;
-                a.download = currentLogFilename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(downloadUrl);
-            } else {
-                alert('Failed to download log file');
-            }
-        } catch (error) {
-            console.error('Error downloading log:', error);
-            alert('Error downloading log: ' + error.message);
-        }
-    }
-}
-
-function toggleLogTail() {
-    if (currentLogServerId) {
-        loadLogContent(currentLogServerId);
-    } else if (currentLogFilename) {
-        loadGenericLogContent(currentLogFilename);
-    }
-}
-
-function toggleLogsAutoRefresh() {
-    const toggle = document.getElementById('logsAutoRefreshToggle');
-    logsAutoRefreshEnabled = !logsAutoRefreshEnabled;
-    
-    if (logsAutoRefreshEnabled) {
-        toggle.classList.add('active');
-        startLogsAutoRefresh();
-    } else {
-        toggle.classList.remove('active');
-        stopLogsAutoRefresh();
-    }
-}
-
-function startLogsAutoRefresh() {
-    if (logsAutoRefreshTimer) {
-        clearInterval(logsAutoRefreshTimer);
-    }
-    
-    logsAutoRefreshTimer = setInterval(() => {
-        if (currentLogServerId && document.getElementById('logsTab').style.display !== 'none') {
-            loadLogContent(currentLogServerId);
-        }
-    }, 5000); // Refresh every 5 seconds
-}
-
-function stopLogsAutoRefresh() {
-    if (logsAutoRefreshTimer) {
-        clearInterval(logsAutoRefreshTimer);
-        logsAutoRefreshTimer = null;
-    }
-}
-
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function updateLogsLastRefreshTime() {
-    const lastUpdateElement = document.getElementById('logsLastUpdateTime');
-    if (lastUpdateElement) {
-        const now = new Date();
-        const timeString = now.toLocaleTimeString();
-        lastUpdateElement.textContent = `Last updated: ${timeString}`;
-        lastUpdateElement.style.color = '#86868b';
-    }
-}
