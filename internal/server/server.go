@@ -118,17 +118,26 @@ func (s *Server) Router() http.Handler {
 		// HTTP endpoints for MCP over HTTP
 		mcpRouter.HandleFunc("/mcp/http", s.handleHTTP).Methods("POST")
 		
-		// Gateway-specific endpoints
+		// Gateway-specific endpoints (general access)
 		mcpRouter.HandleFunc("/gateway/status", s.handleGatewayStatus).Methods("GET")
-		mcpRouter.HandleFunc("/gateway/upstream", s.handleUpstreamServers).Methods("GET")
 		mcpRouter.HandleFunc("/gateway/stats", s.handleGatewayStats).Methods("GET")
-		mcpRouter.HandleFunc("/gateway/refresh", s.handleRefreshConnections).Methods("POST")
 		
-		// Log endpoints
-		mcpRouter.HandleFunc("/api/logs/{filename}", s.handleGenericLog).Methods("GET")
+		// Admin-only endpoints
+		adminRouter := r.NewRoute().Subrouter()
+		adminRouter.Use(s.authHandler.AdminMiddleware)
 		
-		// Register CRUD API routes with auth
-		s.upstreamHandler.RegisterRoutes(mcpRouter)
+		// Admin gateway endpoints
+		adminRouter.HandleFunc("/gateway/upstream", s.handleUpstreamServers).Methods("GET")
+		adminRouter.HandleFunc("/gateway/refresh", s.handleRefreshConnections).Methods("POST")
+		
+		// Log endpoints (admin only)
+		adminRouter.HandleFunc("/api/logs/{filename}", s.handleGenericLog).Methods("GET")
+		
+		// Register CRUD API routes with admin access
+		s.upstreamHandler.RegisterRoutes(adminRouter)
+		
+		// Register admin user management routes
+		s.authHandler.RegisterAdminRoutes(r)
 	} else {
 		// Unprotected endpoints when auth is disabled
 		// SSE endpoint for MCP communication (VS Code uses this)
@@ -140,7 +149,7 @@ func (s *Server) Router() http.Handler {
 		// HTTP endpoints for MCP over HTTP
 		r.HandleFunc("/mcp/http", s.handleHTTP).Methods("POST")
 		
-		// Gateway-specific endpoints
+		// Gateway-specific endpoints (all accessible when auth disabled)
 		r.HandleFunc("/gateway/status", s.handleGatewayStatus).Methods("GET")
 		r.HandleFunc("/gateway/upstream", s.handleUpstreamServers).Methods("GET")
 		r.HandleFunc("/gateway/stats", s.handleGatewayStats).Methods("GET")
@@ -151,6 +160,9 @@ func (s *Server) Router() http.Handler {
 		
 		// Register CRUD API routes without auth
 		s.upstreamHandler.RegisterRoutes(r)
+		
+		// Register admin user management routes (no auth when disabled)
+		s.authHandler.RegisterAdminRoutes(r)
 	}
 
 	r.HandleFunc("/admin", s.handleAdminPanel).Methods("GET")

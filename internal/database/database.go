@@ -51,6 +51,11 @@ func New(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to create tables: %w", err)
 	}
 
+	// Run database migrations
+	if err := db.runMigrations(); err != nil {
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	}
+
 	return db, nil
 }
 
@@ -89,6 +94,7 @@ func (db *DB) createTables() error {
 		username TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
 		is_active BOOLEAN DEFAULT true,
+		is_admin BOOLEAN DEFAULT false,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -150,4 +156,48 @@ func (db *DB) retryOnBusy(operation func() error, maxRetries int) error {
 		return err
 	}
 	return fmt.Errorf("operation failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// runMigrations handles database schema migrations
+func (db *DB) runMigrations() error {
+	// Check if is_admin column exists in users table
+	rows, err := db.conn.Query("PRAGMA table_info(users)")
+	if err != nil {
+		return fmt.Errorf("failed to get table info: %w", err)
+	}
+	defer rows.Close()
+
+	hasIsAdminColumn := false
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, pk int
+		var defaultValue interface{}
+		
+		err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk)
+		if err != nil {
+			return fmt.Errorf("failed to scan column info: %w", err)
+		}
+		
+		if name == "is_admin" {
+			hasIsAdminColumn = true
+			break
+		}
+	}
+
+	// Add is_admin column if it doesn't exist
+	if !hasIsAdminColumn {
+		_, err := db.conn.Exec("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT false")
+		if err != nil {
+			return fmt.Errorf("failed to add is_admin column: %w", err)
+		}
+		
+		// Make the first user (admin) an admin if exists
+		_, err = db.conn.Exec("UPDATE users SET is_admin = true WHERE username = 'admin'")
+		if err != nil {
+			return fmt.Errorf("failed to update admin user: %w", err)
+		}
+	}
+
+	return nil
 }

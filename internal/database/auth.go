@@ -18,6 +18,7 @@ type UserRecord struct {
 	Username  string    `json:"username" db:"username"`
 	Password  string    `json:"-" db:"password_hash"` // Hashed password, not returned in JSON
 	IsActive  bool      `json:"is_active" db:"is_active"`
+	IsAdmin   bool      `json:"is_admin" db:"is_admin"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -38,17 +39,22 @@ type TokenRecord struct {
 
 // CreateUser creates a new user with hashed password
 func (db *DB) CreateUser(username, password string) (*UserRecord, error) {
+	return db.CreateUserWithAdmin(username, password, false)
+}
+
+// CreateUserWithAdmin creates a new user with hashed password and admin flag
+func (db *DB) CreateUserWithAdmin(username, password string, isAdmin bool) (*UserRecord, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
 	query := `
-	INSERT INTO users (username, password_hash)
-	VALUES (?, ?)
+	INSERT INTO users (username, password_hash, is_admin)
+	VALUES (?, ?, ?)
 	`
 
-	result, err := db.conn.Exec(query, username, string(hashedPassword))
+	result, err := db.conn.Exec(query, username, string(hashedPassword), isAdmin)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
@@ -64,14 +70,14 @@ func (db *DB) CreateUser(username, password string) (*UserRecord, error) {
 // GetUser retrieves a user by ID
 func (db *DB) GetUser(id int64) (*UserRecord, error) {
 	query := `
-	SELECT id, username, password_hash, is_active, created_at, updated_at
+	SELECT id, username, password_hash, is_active, is_admin, created_at, updated_at
 	FROM users WHERE id = ?
 	`
 
 	row := db.conn.QueryRow(query, id)
 
 	var user UserRecord
-	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
+	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
@@ -82,14 +88,14 @@ func (db *DB) GetUser(id int64) (*UserRecord, error) {
 // GetUserByUsername retrieves a user by username
 func (db *DB) GetUserByUsername(username string) (*UserRecord, error) {
 	query := `
-	SELECT id, username, password_hash, is_active, created_at, updated_at
+	SELECT id, username, password_hash, is_active, is_admin, created_at, updated_at
 	FROM users WHERE username = ?
 	`
 
 	row := db.conn.QueryRow(query, username)
 
 	var user UserRecord
-	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
+	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
@@ -100,7 +106,7 @@ func (db *DB) GetUserByUsername(username string) (*UserRecord, error) {
 // ListUsers retrieves all users
 func (db *DB) ListUsers() ([]*UserRecord, error) {
 	query := `
-	SELECT id, username, password_hash, is_active, created_at, updated_at
+	SELECT id, username, password_hash, is_active, is_admin, created_at, updated_at
 	FROM users ORDER BY username
 	`
 
@@ -113,7 +119,7 @@ func (db *DB) ListUsers() ([]*UserRecord, error) {
 	var users []*UserRecord
 	for rows.Next() {
 		var user UserRecord
-		err := rows.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
+		err := rows.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
@@ -124,7 +130,7 @@ func (db *DB) ListUsers() ([]*UserRecord, error) {
 }
 
 // UpdateUser updates an existing user
-func (db *DB) UpdateUser(id int64, username, password string, isActive bool) (*UserRecord, error) {
+func (db *DB) UpdateUser(id int64, username, password string, isActive, isAdmin bool) (*UserRecord, error) {
 	var hashedPassword string
 	if password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -135,9 +141,9 @@ func (db *DB) UpdateUser(id int64, username, password string, isActive bool) (*U
 	}
 
 	query := `
-	UPDATE users SET username = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+	UPDATE users SET username = ?, is_active = ?, is_admin = ?, updated_at = CURRENT_TIMESTAMP
 	`
-	args := []interface{}{username, isActive}
+	args := []interface{}{username, isActive, isAdmin}
 
 	if hashedPassword != "" {
 		query += ", password_hash = ?"
@@ -257,7 +263,7 @@ func (db *DB) initializeDefaultUser() error {
 	passwordStr := hex.EncodeToString(password)
 
 	// Create the admin user
-	user, err := db.CreateUser("admin", passwordStr)
+	user, err := db.CreateUserWithAdmin("admin", passwordStr, true)
 	if err != nil {
 		return fmt.Errorf("failed to create admin user: %w", err)
 	}

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCP Gateway - Admin Panel</title>
     <link rel="stylesheet" href="/static/admin.css">
+    <script src="/static/statistics.js"></script>
     <script src="/static/admin.js"></script>
 </head>
 <body>
@@ -88,95 +89,8 @@
             <div id="tokensList" class="tokens-list"></div>
         </div>
 
-        <!-- Statistics Tab -->
-        <div id="statsTab" class="tab-content hidden">
-            <h2>Gateway Statistics</h2>
-            
-            <!-- Core Statistics -->
-            <div class="stats" id="statsContent">
-                <div class="stat-card">
-                    <div class="stat-number" id="totalServersStats">-</div>
-                    <div class="stat-label">Total Servers</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="connectedServersStats">-</div>
-                    <div class="stat-label">Connected Servers</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="totalToolsStats">-</div>
-                    <div class="stat-label">Total Tools</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="totalResourcesStats">-</div>
-                    <div class="stat-label">Total Resources</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="requestsProcessedStats">-</div>
-                    <div class="stat-label">Requests Processed</div>
-                </div>
-            </div>
-
-            <!-- User & Security Statistics -->
-            <h3>User & Security</h3>
-            <div class="stats">
-                <div class="stat-card">
-                    <div class="stat-number" id="activeTokensStats">-</div>
-                    <div class="stat-label">Active Tokens</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="totalUsersStats">-</div>
-                    <div class="stat-label">Total Users</div>
-                </div>
-            </div>
-
-            <!-- Server Status Distribution -->
-            <h3>Server Status Distribution</h3>
-            <div class="stats" id="serverStatusStats">
-                <!-- Dynamically populated -->
-            </div>
-
-            <!-- Server Type Distribution -->
-            <h3>Server Type Distribution</h3>
-            <div class="stats" id="serverTypeStats">
-                <!-- Dynamically populated -->
-            </div>
-
-            <!-- Authentication Methods -->
-            <h3>Authentication Methods</h3>
-            <div class="stats" id="authMethodsStats">
-                <!-- Dynamically populated -->
-            </div>
-            
-            <div class="actions">
-                <button class="btn btn-secondary" onclick="adminPanel.loadStats()">Refresh Statistics</button>
-            </div>
-            
-            <div class="stats-details">
-                <h3>Gateway Information</h3>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <span class="info-label">Gateway Name:</span>
-                        <span class="info-value" id="gatewayName">-</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Gateway Version:</span>
-                        <span class="info-value" id="gatewayVersion">-</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">System Uptime:</span>
-                        <span class="info-value" id="systemUptime">-</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Last Database Update:</span>
-                        <span class="info-value" id="lastDatabaseUpdate">-</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Last Updated:</span>
-                        <span class="info-value" id="lastUpdated">-</span>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <!-- Statistics Tab will be loaded here -->
+        <div id="statisticsTabPlaceholder"></div>
 
         <!-- Logs Tab -->
         <div id="logsTab" class="tab-content hidden">
