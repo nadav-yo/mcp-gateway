@@ -128,6 +128,7 @@ func (s *Server) handleGenericLog(w http.ResponseWriter, r *http.Request) {
 	// Security: only allow specific log files
 	allowedLogs := map[string]bool{
 		"request.log": true,
+		"audit.log":   true,
 	}
 	
 	if !allowedLogs[filename] {

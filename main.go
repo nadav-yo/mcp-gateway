@@ -32,6 +32,9 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
+	// Initialize loggers with rotation configuration
+	logger.InitializeLoggers(cfg)
+
 	// Initialize database
 	db, err := database.New(dbPath)
 	if err != nil {

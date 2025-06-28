@@ -1,0 +1,154 @@
+<!-- Servers Management Tab -->
+<div id="serversTab" class="tab-content hidden">
+    <h2>Upstream Servers</h2>
+    <div class="stats" id="stats">
+        <div class="stat-card">
+            <div class="stat-number" id="totalServers">-</div>
+            <div class="stat-label">Total Servers</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="connectedServers">-</div>
+            <div class="stat-label">Connected</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="totalTools">-</div>
+            <div class="stat-label">Total Tools</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="totalResources">-</div>
+            <div class="stat-label">Total Resources</div>
+        </div>
+    </div>
+    
+    <div class="actions">
+        <button class="btn" onclick="showAddServerModal()">Add Server</button>
+        <button class="btn btn-secondary" onclick="refreshConnections()">Refresh Connections</button>
+        <button class="btn btn-secondary" onclick="loadServers()">Reload</button>
+        <div class="auto-refresh-toggle">
+            <span class="toggle-label">Auto-refresh</span>
+            <div class="toggle-switch" id="autoRefreshToggle" onclick="adminPanel.toggleAutoRefresh()">
+                <div class="toggle-slider"></div>
+            </div>
+        </div>
+        <span id="lastUpdateTime" class="last-update-time"></span>
+    </div>
+    
+    <div class="servers-section">
+        <div class="servers-header">
+            <h2>Upstream Servers</h2>
+            <span id="serverCount">0 servers</span>
+        </div>
+        <div class="servers-list" id="serversList">
+            <div class="loading">Loading servers...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Server Modal -->
+<div class="modal" id="serverModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modalTitle">Add Server</h3>
+            <button class="close-btn" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="serverForm">
+            <div class="form-group">
+                <label class="form-label">Name *</label>
+                <input type="text" class="form-input" id="serverName" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Type *</label>
+                    <select class="form-input" id="serverType" required onchange="toggleServerFields()">
+                        <option value="http">HTTP</option>
+                        <option value="stdio">STDIO</option>
+                        <option value="websocket">WebSocket</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Timeout</label>
+                    <input type="text" class="form-input" id="serverTimeout" placeholder="30s" value="30s">
+                </div>
+            </div>
+            <div class="form-group" id="urlGroup">
+                <label class="form-label">URL *</label>
+                <input type="url" class="form-input" id="serverUrl" required>
+            </div>
+            <div class="form-group hidden" id="commandGroup">
+                <label class="form-label">Command *</label>
+                <input type="text" class="form-input" id="serverCommand" placeholder="e.g., npx @modelcontextprotocol/server-everything">
+                <div class="form-help">Enter the command to execute. Use spaces to separate command and arguments (e.g., "npx name --variable value")</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Prefix</label>
+                <input type="text" class="form-input" id="serverPrefix" placeholder="Optional prefix for tools/resources">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <input type="text" class="form-input" id="serverDescription" placeholder="Optional description">
+            </div>
+            
+            <!-- Authentication Section (HTTP servers only) -->
+            <div class="form-section" id="authSection">
+                <h4 class="form-section-title">HTTP Server Authentication</h4>
+                <div class="form-group">
+                    <label class="form-label">Authentication Type</label>
+                    <select class="form-input" id="authType" onchange="toggleAuthFields()">
+                        <option value="">No Authentication</option>
+                        <option value="bearer">Bearer Token</option>
+                        <option value="basic">Basic Authentication</option>
+                        <option value="api-key">API Key</option>
+                    </select>
+                </div>
+                
+                <!-- Bearer Token Fields -->
+                <div class="auth-fields" id="bearerFields">
+                    <div class="form-group">
+                        <label class="form-label">Bearer Token</label>
+                        <input type="password" class="form-input" id="bearerToken" placeholder="Enter bearer token">
+                        <div class="form-help">This token will be sent as "Authorization: Bearer &lt;token&gt;"</div>
+                    </div>
+                </div>
+                
+                <!-- Basic Auth Fields -->
+                <div class="auth-fields" id="basicFields">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-input" id="basicUsername" placeholder="Username">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-input" id="basicPassword" placeholder="Password">
+                        </div>
+                    </div>
+                    <div class="form-help">Credentials will be sent as "Authorization: Basic &lt;base64(username:password)&gt;"</div>
+                </div>
+                
+                <!-- API Key Fields -->
+                <div class="auth-fields" id="apiKeyFields">
+                    <div class="form-group">
+                        <label class="form-label">API Key</label>
+                        <input type="password" class="form-input" id="apiKey" placeholder="Enter API key">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Header Name</label>
+                        <input type="text" class="form-input" id="apiKeyHeader" placeholder="X-API-Key" value="X-API-Key">
+                        <div class="form-help">Custom header name for the API key (default: X-API-Key)</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="serverEnabled" checked>
+                    <label for="serverEnabled">Enabled</label>
+                </div>
+            </div>
+            <div class="actions">
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

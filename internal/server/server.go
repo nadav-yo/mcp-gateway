@@ -100,7 +100,7 @@ func (s *Server) Router() http.Handler {
 	r := mux.NewRouter()
 	
 	// Add request logging middleware to all routes
-	requestLogger := logger.NewRequestLogger()
+	requestLogger := logger.NewRequestLoggerWithConfig(&s.config.Logging.Rotation)
 	r.Use(requestLogger.Middleware)
 	
 	// Register authentication routes first (includes public login endpoint)

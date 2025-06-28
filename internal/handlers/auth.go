@@ -171,8 +171,6 @@ func (h *AuthHandler) HandleCreateToken(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-
-	h.logger.Info().Str("username", user.Username).Msg("Token created successfully")
 }
 
 // HandleListTokens handles requests to list user tokens
@@ -244,7 +242,6 @@ func (h *AuthHandler) HandleRevokeToken(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-	h.logger.Info().Str("username", user.Username).Int64("token_id", id).Msg("Token revoked successfully")
 }
 
 // HandleCreateUser handles requests to create new users
@@ -292,6 +289,16 @@ func (h *AuthHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 
 	h.logger.Info().Str("username", user.Username).Bool("is_admin", user.IsAdmin).Msg("User created successfully")
+	
+	// Audit log for user creation
+	if adminToken, ok := r.Context().Value("user").(*database.TokenRecord); ok {
+		logger.GetAuditLogger().Info().
+			Str("admin_username", adminToken.Username).
+			Str("action", "user_created").
+			Str("target_username", user.Username).
+			Bool("target_is_admin", user.IsAdmin).
+			Msg("Admin created new user")
+	}
 }
 
 // HandleListUsers handles requests to list all users
@@ -429,11 +436,13 @@ func (h *AuthHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 
-	h.logger.Info().
-		Int64("user_id", userID).
-		Str("username", updatedUser.Username).
-		Bool("is_admin", updatedUser.IsAdmin).
-		Msg("User updated successfully")
+	// Audit log for user update
+	logger.GetAuditLogger().Info().
+		Str("admin_username", currentUser.Username).
+		Str("action", "user_updated").
+		Int64("target_id", userID).
+		Str("target_username", updatedUser.Username).
+		Msg("Admin updated user")
 }
 
 // HandleDeleteUser handles requests to delete a user
@@ -478,10 +487,15 @@ func (h *AuthHandler) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 
-	h.logger.Info().
-		Int64("user_id", userID).
-		Str("username", existingUser.Username).
-		Msg("User deleted successfully")
+	// Audit log for user deletion
+	if adminToken, ok := r.Context().Value("user").(*database.TokenRecord); ok {
+		logger.GetAuditLogger().Info().
+			Str("admin_username", adminToken.Username).
+			Str("action", "user_deleted").
+			Int64("target_id", userID).
+			Str("target_username", existingUser.Username).
+			Msg("Admin deleted user")
+	}
 }
 
 // HandleLogout handles user logout requests - revokes the current session token

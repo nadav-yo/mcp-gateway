@@ -63,6 +63,9 @@ class LogsTab {
         document.getElementById('refreshLogBtn').disabled = false;
         document.getElementById('downloadLogBtn').disabled = false;
         
+        // Show loading message immediately
+        document.getElementById('logContent').innerHTML = `<div class="loading">Loading ${filename}...</div>`;
+        
         // Load log content
         await this.loadGenericLogContent(filename);
     }
@@ -80,6 +83,9 @@ class LogsTab {
         document.getElementById('logViewerTitle').textContent = `Logs for ${serverName}`;
         document.getElementById('refreshLogBtn').disabled = false;
         document.getElementById('downloadLogBtn').disabled = false;
+        
+        // Show loading message immediately
+        document.getElementById('logContent').innerHTML = `<div class="loading">Loading logs for ${serverName}...</div>`;
         
         // Load log content
         await this.loadLogContent(serverId);
@@ -160,8 +166,12 @@ class LogsTab {
     // Refresh the currently viewed log
     refreshCurrentLog() {
         if (this.currentLogServerId) {
+            // Show loading message immediately
+            document.getElementById('logContent').innerHTML = `<div class="loading">Refreshing logs...</div>`;
             this.loadLogContent(this.currentLogServerId);
         } else if (this.currentLogFilename) {
+            // Show loading message immediately
+            document.getElementById('logContent').innerHTML = `<div class="loading">Refreshing ${this.currentLogFilename}...</div>`;
             this.loadGenericLogContent(this.currentLogFilename);
         }
     }

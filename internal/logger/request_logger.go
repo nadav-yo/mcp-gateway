@@ -5,12 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
-	"os"
 	"path/filepath"
 	"reflect"
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/nadav-yo/mcp-gateway/pkg/config"
 )
 
 // RequestLogger provides request logging middleware
@@ -20,27 +20,25 @@ type RequestLogger struct {
 
 // NewRequestLogger creates a new request logger that logs to request.log file
 func NewRequestLogger() *RequestLogger {
-	// Ensure logs directory exists
-	logsDir := "logs"
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
-		// Fallback to console if can't create directory
-		return &RequestLogger{
-			logger: GetLogger("request"),
-		}
-	}
+	return NewRequestLoggerWithConfig(nil)
+}
+
+// NewRequestLoggerWithConfig creates a new request logger with rotation configuration
+func NewRequestLoggerWithConfig(rotationConfig *config.LogRotationConfig) *RequestLogger {
+	// Create the log file path
+	logFile := filepath.Join("logs", "request.log")
 	
-	// Create or open the request.log file
-	logFile := filepath.Join(logsDir, "request.log")
-	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	// Get writer with rotation if configured
+	writer, err := GetRotatingWriter(logFile, rotationConfig)
 	if err != nil {
-		// Fallback to console if can't open file
+		// Fallback to console if can't create rotating writer
 		return &RequestLogger{
 			logger: GetLogger("request"),
 		}
 	}
 	
 	// Create a file-only logger
-	fileLogger := zerolog.New(file).With().
+	fileLogger := zerolog.New(writer).With().
 		Timestamp().
 		Str("component", "request").
 		Logger()

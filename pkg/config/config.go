@@ -90,9 +90,19 @@ type SecurityConfig struct {
 
 // LoggingConfig contains logging settings
 type LoggingConfig struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
-	Output string `yaml:"output"`
+	Level    string           `yaml:"level"`
+	Format   string           `yaml:"format"`
+	Output   string           `yaml:"output"`
+	Rotation LogRotationConfig `yaml:"rotation"`
+}
+
+// LogRotationConfig contains log rotation settings
+type LogRotationConfig struct {
+	Enabled    bool `yaml:"enabled"`
+	MaxSizeMB  int  `yaml:"max_size_mb"`
+	MaxBackups int  `yaml:"max_backups"`
+	MaxAgeDays int  `yaml:"max_age_days"`
+	Compress   bool `yaml:"compress"`
 }
 
 // Load loads configuration from file
@@ -133,6 +143,13 @@ func Load(configPath string) (*Config, error) {
 			Level:  "info",
 			Format: "json",
 			Output: "stdout",
+			Rotation: LogRotationConfig{
+				Enabled:    true,
+				MaxSizeMB:  100,
+				MaxBackups: 5,
+				MaxAgeDays: 30,
+				Compress:   true,
+			},
 		},
 	}
 

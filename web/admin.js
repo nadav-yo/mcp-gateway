@@ -6,7 +6,6 @@ class AdminPanel {
         this.authEnabled = window.AUTH_ENABLED || false;
         this.token = null;
         this.user = null;
-        this.currentEditingId = null;
         
         // Auto-refresh configuration
         this.autoRefreshEnabled = true;
@@ -16,7 +15,6 @@ class AdminPanel {
         this.isRefreshing = false;
         
         // Cache for preventing unnecessary DOM updates
-        this.lastServersData = null;
         
         // Loading indicator state
         this.refreshIndicatorTimeout = null;
@@ -33,6 +31,9 @@ class AdminPanel {
         
         // Initialize logs tab
         this.logsTab = new LogsTab(this);
+        
+        // Initialize servers tab
+        this.serversTab = new ServersTab(this);
         
         // Initialize user management (only for auth mode)
         if (this.authEnabled) {
@@ -65,8 +66,12 @@ class AdminPanel {
             this.loadUserInfoHTML(),
             this.loadStatisticsHTML(),
             this.loadLogsHTML(),
+            this.loadServersHTML(),
             ...(this.authEnabled ? [this.loadUsersHTML(), this.loadTokensHTML()] : [])
         ]);
+        
+        // Initialize components after HTML is loaded
+        await this.serversTab.initialize();
         
         this.setupEventListeners();
         
@@ -130,6 +135,16 @@ class AdminPanel {
             document.getElementById('tokensTabPlaceholder').innerHTML = html;
         } catch (error) {
             console.error('Error loading tokens HTML:', error);
+        }
+    }
+
+    async loadServersHTML() {
+        try {
+            const response = await fetch('/static/servers.html');
+            const html = await response.text();
+            document.getElementById('serversTabPlaceholder').innerHTML = html;
+        } catch (error) {
+            console.error('Error loading servers HTML:', error);
         }
     }
     
@@ -379,7 +394,7 @@ class AdminPanel {
 
     async loadInitialData() {
         await this.statisticsTab.loadStats();
-        await this.loadServers();
+        await this.serversTab.loadServers();
     }
 
     // Auto-refresh functionality
@@ -393,8 +408,6 @@ class AdminPanel {
                 this.performAutoRefresh();
             }
         }, this.autoRefreshInterval);
-        
-        console.log(`Auto-refresh started (${this.autoRefreshInterval}ms interval)`);
     }
     
     stopAutoRefresh() {
@@ -426,7 +439,7 @@ class AdminPanel {
                 // Always refresh servers data as it's the main tab
                 await Promise.all([
                     this.statisticsTab.loadStats(),
-                    this.loadServers()
+                    this.serversTab.loadServers()
                 ]);
             } else if (currentTab === 'stats') {
                 // Refresh stats tab data
@@ -477,289 +490,11 @@ class AdminPanel {
 
     // Cache management
     clearDataCache() {
-        this.lastServersData = null;
         if (this.statisticsTab) {
             this.statisticsTab.clearCache();
         }
-    }
-
-    // Common methods for server management
-
-    async loadServers() {
-        try {
-            // Load both server list and gateway status to get tools information
-            const [serversResponse, statusResponse] = await Promise.all([
-                this.makeAuthenticatedRequest('/api/upstream-servers'),
-                this.makeAuthenticatedRequest('/gateway/status')
-            ]);
-            
-            const serversResult = await serversResponse.json();
-            const statusResult = await statusResponse.json();
-            
-            if (serversResult.success) {
-                // Merge server data with tools information from gateway status
-                const servers = serversResult.data.servers || [];
-                const upstreamServers = statusResult.gateway?.upstream_servers || [];
-                
-                // Create a map of server names to their tools
-                const toolsMap = {};
-                upstreamServers.forEach(upstream => {
-                    toolsMap[upstream.name] = {
-                        tool_details: upstream.tool_details || [],
-                        connected: upstream.connected
-                    };
-                });
-                
-                // Add tools information to each server
-                servers.forEach(server => {
-                    const toolsInfo = toolsMap[server.name] || { tool_details: [], connected: false };
-                    server.tool_details = toolsInfo.tool_details;
-                    server.runtime_connected = toolsInfo.connected;
-                });
-                
-                // Only update DOM if data has changed
-                const serversKey = JSON.stringify(servers.map(s => ({
-                    id: s.id,
-                    name: s.name,
-                    status: s.status,
-                    enabled: s.enabled,
-                    runtime_connected: s.runtime_connected,
-                    tool_details_count: s.tool_details?.length || 0
-                })));
-                
-                if (this.lastServersData !== serversKey) {
-                    this.renderServers(servers);
-                    this.lastServersData = serversKey;
-                }
-                
-                document.getElementById('serverCount').textContent = `${serversResult.data.count || 0} servers`;
-                
-                // Update last refresh time
-                this.updateLastRefreshTime();
-            } else {
-                throw new Error(serversResult.error || 'Failed to load servers');
-            }
-        } catch (error) {
-            console.error('Error loading servers:', error);
-            document.getElementById('serversList').innerHTML = 
-                `<div class="error">Error loading servers: ${error.message}</div>`;
-        }
-    }
-
-    renderServers(servers) {
-        const serversList = document.getElementById('serversList');
-        
-        if (servers.length === 0) {
-            serversList.innerHTML = '<div class="loading">No servers configured</div>';
-            return;
-        }
-        
-        serversList.innerHTML = servers.map((server, index) => {
-            const toolDetails = server.tool_details || [];
-            const isRuntimeConnected = server.runtime_connected || false;
-            
-            // Use the database status, but show "disabled" if the server is not enabled
-            const displayStatus = !server.enabled ? 'disabled' : (server.status || 'disconnected');
-            
-            const toolsTableContent = toolDetails.length > 0 
-                ? `<table class="tools-table">
-                    <thead>
-                        <tr>
-                            <th>Tool Name</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${toolDetails.map(tool => `
-                            <tr>
-                                <td class="tool-name">${this.escapeHtml(tool.name)}</td>
-                                <td class="tool-description">${this.escapeHtml(tool.description || 'No description available')}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>`
-                : '<div class="no-tools">No tools available</div>';
-            
-            const displayUrl = server.type === 'stdio' && server.command && server.command.length > 0
-                ? server.command.join(' ')
-                : server.url || '';
-            
-            // Build authentication info
-            let authInfo = '';
-            if (server.auth_type && server.type === 'http') {
-                switch (server.auth_type) {
-                    case 'bearer':
-                        authInfo = '<span>Auth: Bearer Token</span>';
-                        break;
-                    case 'basic':
-                        authInfo = `<span>Auth: Basic (${this.escapeHtml(server.auth_username || 'Unknown')})</span>`;
-                        break;
-                    case 'api-key':
-                        authInfo = `<span>Auth: API Key (${this.escapeHtml(server.auth_header_name || 'X-API-Key')})</span>`;
-                        break;
-                    default:
-                        authInfo = `<span>Auth: ${this.escapeHtml(server.auth_type)}</span>`;
-                }
-            }
-            
-            return `
-                <div class="server-item">
-                    <div class="server-main">
-                        <div class="server-info">
-                            <div class="server-name">${this.escapeHtml(server.name)}</div>
-                            <div class="server-url">${this.escapeHtml(displayUrl)}</div>
-                            ${server.description ? `<div class="server-description">${this.escapeHtml(server.description)}</div>` : ''}
-                            <div class="server-meta">
-                                <span class="server-status status-${displayStatus}">
-                                    ${displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1)}
-                                </span>
-                                <span>Type: ${server.type}</span>
-                                ${server.prefix ? `<span>Prefix: ${this.escapeHtml(server.prefix)}</span>` : ''}
-                                ${authInfo}
-                            </div>
-                        </div>
-                        <div class="server-actions">
-                            <button class="btn btn-sm btn-secondary" onclick="adminPanel.editServer(${server.id})">Edit</button>
-                            <button class="btn btn-sm ${server.enabled ? 'btn-secondary' : 'btn'}" 
-                                    onclick="adminPanel.toggleServer(${server.id})">
-                                ${server.enabled ? 'Disable' : 'Enable'}
-                            </button>
-                            <button class="btn btn-sm btn-secondary" onclick="adminPanel.viewServerLogs(${server.id}, '${this.escapeHtml(server.name)}')">View Logs</button>
-                            <button class="btn btn-sm btn-danger" onclick="adminPanel.deleteServer(${server.id})">Delete</button>
-                        </div>
-                    </div>
-                    <div class="server-tools">
-                        <div class="tools-header" onclick="adminPanel.toggleToolsVisibility(${index})">
-                            <span class="tools-toggle" id="tools-toggle-${index}">▶</span>
-                            Available Tools
-                            <span class="tools-count">${toolDetails.length}</span>
-                        </div>
-                        <div class="tools-content" id="tools-content-${index}">
-                            ${toolsTableContent}
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    toggleToolsVisibility(serverIndex) {
-        const content = document.getElementById(`tools-content-${serverIndex}`);
-        const toggle = document.getElementById(`tools-toggle-${serverIndex}`);
-        
-        if (content.classList.contains('expanded')) {
-            content.classList.remove('expanded');
-            toggle.textContent = '▶';
-            toggle.classList.remove('expanded');
-        } else {
-            content.classList.add('expanded');
-            toggle.textContent = '▼';
-            toggle.classList.add('expanded');
-        }
-    }
-
-    async editServer(id) {
-        try {
-            const response = await this.makeAuthenticatedRequest(`/api/upstream-servers/${id}`);
-            const result = await response.json();
-            
-            if (result.success) {
-                this.currentEditingId = id;
-                const server = result.data;
-                
-                document.getElementById('modalTitle').textContent = 'Edit Server';
-                document.getElementById('serverName').value = server.name || '';
-                document.getElementById('serverUrl').value = server.url || '';
-                document.getElementById('serverType').value = server.type || 'websocket';
-                document.getElementById('serverTimeout').value = server.timeout || '30s';
-                document.getElementById('serverPrefix').value = server.prefix || '';
-                document.getElementById('serverDescription').value = server.description || '';
-                document.getElementById('serverEnabled').checked = server.enabled;
-                
-                // Handle command field for stdio servers
-                if (server.command && Array.isArray(server.command) && server.command.length > 0) {
-                    document.getElementById('serverCommand').value = server.command.join(' ');
-                } else {
-                    document.getElementById('serverCommand').value = '';
-                }
-                
-                // Handle authentication fields for HTTP servers
-                if (server.auth_type) {
-                    document.getElementById('authType').value = server.auth_type;
-                    
-                    switch (server.auth_type) {
-                        case 'bearer':
-                            document.getElementById('bearerToken').value = server.auth_token || '';
-                            break;
-                        case 'basic':
-                            document.getElementById('basicUsername').value = server.auth_username || '';
-                            document.getElementById('basicPassword').value = server.auth_password || '';
-                            break;
-                        case 'api-key':
-                            document.getElementById('apiKey').value = server.auth_api_key || '';
-                            document.getElementById('apiKeyHeader').value = server.auth_header_name || 'X-API-Key';
-                            break;
-                    }
-                } else {
-                    // Reset authentication fields
-                    document.getElementById('authType').value = '';
-                    document.getElementById('bearerToken').value = '';
-                    document.getElementById('basicUsername').value = '';
-                    document.getElementById('basicPassword').value = '';
-                    document.getElementById('apiKey').value = '';
-                    document.getElementById('apiKeyHeader').value = 'X-API-Key';
-                }
-                
-                // Set correct field visibility based on type
-                toggleServerFields();
-                toggleAuthFields();
-                
-                document.getElementById('serverModal').style.display = 'block';
-            } else {
-                alert('Error loading server: ' + (result.error || 'Unknown error'));
-            }
-        } catch (error) {
-            alert('Error loading server: ' + error.message);
-        }
-    }
-
-    async toggleServer(id) {
-        try {
-            const response = await this.makeAuthenticatedRequest(`/api/upstream-servers/${id}/toggle`, {
-                method: 'POST'
-            });
-            const result = await response.json();
-            
-            if (result.success) {
-                this.clearDataCache(); // Clear cache to force UI update
-                await this.loadServers();
-                await this.loadStats();
-            } else {
-                alert('Error toggling server: ' + (result.error || 'Unknown error'));
-            }
-        } catch (error) {
-            alert('Error toggling server: ' + error.message);
-        }
-    }
-
-    async deleteServer(id) {
-        if (confirm('Are you sure you want to delete this server?')) {
-            try {
-                const response = await this.makeAuthenticatedRequest(`/api/upstream-servers/${id}`, {
-                    method: 'DELETE'
-                });
-                const result = await response.json();
-                
-                if (result.success) {
-                    this.clearDataCache(); // Clear cache to force UI update
-                    await this.loadServers();
-                    await this.loadStats();
-                } else {
-                    alert('Error deleting server: ' + (result.error || 'Unknown error'));
-                }
-            } catch (error) {
-                alert('Error deleting server: ' + error.message);
-            }
+        if (this.serversTab) {
+            this.serversTab.lastServersData = null;
         }
     }
 
@@ -787,11 +522,6 @@ class AdminPanel {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
-    }
-
-    async viewServerLogs(serverId, serverName) {
-        // Delegate to logs tab
-        await this.logsTab.viewServerLogs(serverId, serverName);
     }
 
     updateLastRefreshTime() {
@@ -869,12 +599,21 @@ class AdminPanel {
 
 // Global functions for onclick handlers
 let adminPanel;
+let serversTab;
 let userManager;
 let tokenManager;
 
 document.addEventListener('DOMContentLoaded', function() {
     adminPanel = new AdminPanel();
     window.adminPanel = adminPanel; // Make adminPanel globally accessible
+    
+    // Make serversTab globally accessible once it's initialized
+    setTimeout(() => {
+        if (adminPanel.serversTab) {
+            serversTab = adminPanel.serversTab;
+            window.serversTab = serversTab;
+        }
+    }, 100);
     
     // Clean up auto-refresh timer when page is unloaded
     window.addEventListener('beforeunload', function() {
@@ -895,220 +634,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-function showAddServerModal() {
-    adminPanel.currentEditingId = null;
-    document.getElementById('modalTitle').textContent = 'Add Server';
-    document.getElementById('serverForm').reset();
-    document.getElementById('serverEnabled').checked = true;
-    
-    // Reset authentication fields
-    document.getElementById('authType').value = '';
-    document.getElementById('bearerToken').value = '';
-    document.getElementById('basicUsername').value = '';
-    document.getElementById('basicPassword').value = '';
-    document.getElementById('apiKey').value = '';
-    document.getElementById('apiKeyHeader').value = 'X-API-Key';
-    
-    toggleServerFields();
-    toggleAuthFields();
-    document.getElementById('serverModal').style.display = 'block';
-}
-
-function toggleServerFields() {
-    const serverType = document.getElementById('serverType').value;
-    const urlGroup = document.getElementById('urlGroup');
-    const commandGroup = document.getElementById('commandGroup');
-    const authSection = document.getElementById('authSection');
-    const serverUrl = document.getElementById('serverUrl');
-    const serverCommand = document.getElementById('serverCommand');
-    
-    if (serverType === 'stdio') {
-        urlGroup.classList.add('hidden');
-        commandGroup.classList.remove('hidden');
-        authSection.classList.remove('visible');
-        serverUrl.required = false;
-        serverCommand.required = true;
-    } else {
-        urlGroup.classList.remove('hidden');
-        commandGroup.classList.add('hidden');
-        serverUrl.required = true;
-        serverCommand.required = false;
-        
-        // Show auth section for HTTP servers
-        if (serverType === 'http') {
-            authSection.classList.add('visible');
-        } else {
-            authSection.classList.remove('visible');
-        }
-    }
-}
-
-function toggleAuthFields() {
-    const authType = document.getElementById('authType').value;
-    const bearerFields = document.getElementById('bearerFields');
-    const basicFields = document.getElementById('basicFields');
-    const apiKeyFields = document.getElementById('apiKeyFields');
-    
-    // Hide all auth fields
-    bearerFields.classList.remove('active');
-    basicFields.classList.remove('active');
-    apiKeyFields.classList.remove('active');
-    
-    // Show relevant auth fields
-    switch (authType) {
-        case 'bearer':
-            bearerFields.classList.add('active');
-            break;
-        case 'basic':
-            basicFields.classList.add('active');
-            break;
-        case 'api-key':
-            apiKeyFields.classList.add('active');
-            break;
-    }
-}
-
-function closeModal() {
-    document.getElementById('serverModal').style.display = 'none';
-}
-
-async function refreshConnections() {
-    try {
-        // Temporarily pause auto-refresh during manual refresh
-        const wasAutoRefreshEnabled = adminPanel.autoRefreshEnabled;
-        adminPanel.autoRefreshEnabled = false;
-        adminPanel.showRefreshingIndicator(true);
-        
-        const response = await adminPanel.makeAuthenticatedRequest('/gateway/refresh', {
-            method: 'POST'
-        });
-        const result = await response.json();
-        
-        if (result.success) {
-            adminPanel.clearDataCache(); // Clear cache to force UI update
-            await adminPanel.loadServers();
-            await adminPanel.loadStats();
-            alert('Connections refreshed successfully');
-        } else {
-            alert('Error refreshing connections: ' + (result.error || 'Unknown error'));
-        }
-        
-        // Re-enable auto-refresh
-        adminPanel.autoRefreshEnabled = wasAutoRefreshEnabled;
-    } catch (error) {
-        // Re-enable auto-refresh on error too
-        adminPanel.autoRefreshEnabled = wasAutoRefreshEnabled || true;
-        alert('Error refreshing connections: ' + error.message);
-    }
-}
-
-async function loadServers() {
-    // Temporarily pause auto-refresh during manual refresh
-    const wasAutoRefreshEnabled = adminPanel.autoRefreshEnabled;
-    adminPanel.autoRefreshEnabled = false;
-    adminPanel.showRefreshingIndicator(true);
-    
-    try {
-        adminPanel.clearDataCache(); // Clear cache to force UI update
-        await adminPanel.loadServers();
-        await adminPanel.loadStats();
-    } finally {
-        // Re-enable auto-refresh
-        adminPanel.autoRefreshEnabled = wasAutoRefreshEnabled;
-    }
-}
-
-// Server form submission
-document.addEventListener('DOMContentLoaded', function() {
-    // Make toggleAuthFields available globally
-    window.toggleAuthFields = toggleAuthFields;
-    
-    document.getElementById('serverForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        const serverType = document.getElementById('serverType').value;
-        const serverData = {
-            name: document.getElementById('serverName').value,
-            type: serverType,
-            timeout: document.getElementById('serverTimeout').value,
-            prefix: document.getElementById('serverPrefix').value,
-            description: document.getElementById('serverDescription').value,
-            enabled: document.getElementById('serverEnabled').checked
-        };
-
-        // Add URL or Command based on type
-        if (serverType === 'stdio') {
-            const commandString = document.getElementById('serverCommand').value.trim();
-            if (commandString) {
-                // Split command string into array, handling quoted arguments
-                serverData.command = commandString.match(/(?:[^\s"]+|"[^"]*")+/g)?.map(arg => 
-                    arg.startsWith('"') && arg.endsWith('"') ? arg.slice(1, -1) : arg
-                ) || [];
-            } else {
-                serverData.command = [];
-            }
-            serverData.url = ''; // Empty URL for stdio
-        } else {
-            serverData.url = document.getElementById('serverUrl').value;
-            // Don't send command field for non-stdio types to avoid confusion
-        }
-
-        // Add authentication data for HTTP servers
-        if (serverType === 'http') {
-            const authType = document.getElementById('authType').value;
-            if (authType) {
-                serverData.auth = {
-                    type: authType
-                };
-                
-                switch (authType) {
-                    case 'bearer':
-                        serverData.auth.bearer_token = document.getElementById('bearerToken').value;
-                        break;
-                    case 'basic':
-                        serverData.auth.username = document.getElementById('basicUsername').value;
-                        serverData.auth.password = document.getElementById('basicPassword').value;
-                        break;
-                    case 'api-key':
-                        serverData.auth.api_key = document.getElementById('apiKey').value;
-                        serverData.auth.header_name = document.getElementById('apiKeyHeader').value || 'X-API-Key';
-                        break;
-                }
-            }
-        }
-        
-        try {
-            const url = adminPanel.currentEditingId 
-                ? `/api/upstream-servers/${adminPanel.currentEditingId}`
-                : '/api/upstream-servers';
-            const method = adminPanel.currentEditingId ? 'PUT' : 'POST';
-            
-            const response = await adminPanel.makeAuthenticatedRequest(url, {
-                method: method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(serverData)
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                closeModal();
-                adminPanel.clearDataCache(); // Clear cache to force UI update
-                await adminPanel.loadServers();
-                await adminPanel.loadStats();
-            } else {
-                alert('Error saving server: ' + (result.error || 'Unknown error'));
-            }
-        } catch (error) {
-            alert('Error saving server: ' + error.message);
-        }
-    });
-});
-
 // Global functions for button handlers
 function openChangePasswordPage() {
     window.location.href = '/ui/change-password';
 }
-

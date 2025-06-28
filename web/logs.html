@@ -23,6 +23,10 @@
                 <div class="log-name">request.log</div>
                 <div class="log-description">All HTTP requests with trace IDs and user information</div>
             </div>
+            <div class="log-item" onclick="adminPanel.logsTab.loadLog('audit.log')">
+                <div class="log-name">audit.log</div>
+                <div class="log-description">Administrative actions: user creation/updates/deletion and server management</div>
+            </div>
             
             <h3>Available Server Logs</h3>
             <div id="logsListContainer">

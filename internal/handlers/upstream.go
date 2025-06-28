@@ -169,6 +169,17 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 	}
 
 	h.writeSuccessResponse(w, http.StatusCreated, "Upstream server created successfully", created)
+	
+	// Audit log for server creation
+	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
+		logger.GetAuditLogger().Info().
+			Str("admin_username", user.Username).
+			Str("action", "server_created").
+			Str("server_name", created.Name).
+			Str("server_type", created.Type).
+			Int64("server_id", created.ID).
+			Msg("Admin created new server")
+	}
 }
 
 // GetUpstreamServer handles GET /api/upstream-servers/{id}
@@ -302,6 +313,16 @@ func (h *UpstreamHandler) UpdateUpstreamServer(w http.ResponseWriter, r *http.Re
 	}
 
 	h.writeSuccessResponse(w, http.StatusOK, "Upstream server updated successfully", updated)
+	
+	// Audit log for server update
+	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
+		logger.GetAuditLogger().Info().
+			Str("admin_username", user.Username).
+			Str("action", "server_updated").
+			Int64("server_id", id).
+			Str("server_name", updated.Name).
+			Msg("Admin updated server")
+	}
 }
 
 // DeleteUpstreamServer handles DELETE /api/upstream-servers/{id}
@@ -316,6 +337,13 @@ func (h *UpstreamHandler) DeleteUpstreamServer(w http.ResponseWriter, r *http.Re
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid server ID", err)
+		return
+	}
+
+	// Get server info before deletion for audit logging
+	serverToDelete, err := h.db.GetUpstreamServer(id)
+	if err != nil {
+		h.writeErrorResponse(w, http.StatusNotFound, "Upstream server not found", err)
 		return
 	}
 
@@ -337,6 +365,16 @@ func (h *UpstreamHandler) DeleteUpstreamServer(w http.ResponseWriter, r *http.Re
 	}
 
 	h.writeSuccessResponse(w, http.StatusOK, "Upstream server deleted successfully", nil)
+	
+	// Audit log for server deletion
+	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
+		logger.GetAuditLogger().Info().
+			Str("admin_username", user.Username).
+			Str("action", "server_deleted").
+			Int64("server_id", id).
+			Str("server_name", serverToDelete.Name).
+			Msg("Admin deleted server")
+	}
 }
 
 // ToggleUpstreamServer handles POST /api/upstream-servers/{id}/toggle

@@ -2,18 +2,27 @@ package logger
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/rs/zerolog"
+	"github.com/nadav-yo/mcp-gateway/pkg/config"
 )
 
 // ServerLogger manages individual log files for each server
 type ServerLogger struct {
-	mu          sync.RWMutex
-	loggers     map[int64]*os.File
-	baseDir     string
+	mu             sync.RWMutex
+	loggers        map[int64]*serverLoggerEntry
+	baseDir        string
+	rotationConfig *config.LogRotationConfig
+}
+
+// serverLoggerEntry holds both the writer and closer for a server logger
+type serverLoggerEntry struct {
+	writer io.Writer
+	closer io.Closer
 }
 
 var serverLogger *ServerLogger
@@ -23,13 +32,18 @@ var once sync.Once
 func GetServerLogger() *ServerLogger {
 	once.Do(func() {
 		serverLogger = &ServerLogger{
-			loggers: make(map[int64]*os.File),
+			loggers: make(map[int64]*serverLoggerEntry),
 			baseDir: "logs",
 		}
-		// Ensure logs directory exists
-		os.MkdirAll(serverLogger.baseDir, 0755)
 	})
 	return serverLogger
+}
+
+// SetRotationConfig sets the rotation configuration for server logs
+func (sl *ServerLogger) SetRotationConfig(config *config.LogRotationConfig) {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	sl.rotationConfig = config
 }
 
 // CreateServerLogger creates a new log file for a server
@@ -38,8 +52,10 @@ func (sl *ServerLogger) CreateServerLogger(serverID int64, serverName string) (z
 	defer sl.mu.Unlock()
 
 	// Close existing logger if it exists
-	if existingFile, exists := sl.loggers[serverID]; exists {
-		existingFile.Close()
+	if existingEntry, exists := sl.loggers[serverID]; exists {
+		if existingEntry.closer != nil {
+			existingEntry.closer.Close()
+		}
 		delete(sl.loggers, serverID)
 	}
 
@@ -47,19 +63,28 @@ func (sl *ServerLogger) CreateServerLogger(serverID int64, serverName string) (z
 	logFileName := fmt.Sprintf("server-%d.log", serverID)
 	logFilePath := filepath.Join(sl.baseDir, logFileName)
 
-	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	// Get writer with rotation if configured
+	writer, err := GetRotatingWriter(logFilePath, sl.rotationConfig)
 	if err != nil {
-		return zerolog.Nop(), fmt.Errorf("failed to create log file for server %d: %w", serverID, err)
+		return zerolog.Nop(), fmt.Errorf("failed to create log writer for server %d: %w", serverID, err)
 	}
 
-	sl.loggers[serverID] = logFile
+	// Store the writer and closer for cleanup
+	entry := &serverLoggerEntry{
+		writer: writer,
+	}
+	if closer, ok := writer.(io.Closer); ok {
+		entry.closer = closer
+	}
+	sl.loggers[serverID] = entry
+
 	fileWriter := zerolog.ConsoleWriter{
-		Out:        logFile,
+		Out:        writer,
 		TimeFormat: "2006-01-02 15:04:05",
 		NoColor:    true, // No color codes in log files
 	}
 
-	// Multi-writer to write to both console and file
+	// Multi-writer to write to file
 	multiWriter := zerolog.MultiLevelWriter(fileWriter)
 
 	logger := zerolog.New(multiWriter).
@@ -82,8 +107,10 @@ func (sl *ServerLogger) CloseServerLogger(serverID int64) {
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
 
-	if logFile, exists := sl.loggers[serverID]; exists {
-		logFile.Close()
+	if loggerEntry, exists := sl.loggers[serverID]; exists {
+		if loggerEntry.closer != nil {
+			loggerEntry.closer.Close()
+		}
 		delete(sl.loggers, serverID)
 	}
 }
@@ -94,8 +121,10 @@ func (sl *ServerLogger) DeleteServerLog(serverID int64) error {
 	defer sl.mu.Unlock()
 
 	// Close the logger first if it's open
-	if logFile, exists := sl.loggers[serverID]; exists {
-		logFile.Close()
+	if loggerEntry, exists := sl.loggers[serverID]; exists {
+		if loggerEntry.closer != nil {
+			loggerEntry.closer.Close()
+		}
 		delete(sl.loggers, serverID)
 	}
 
@@ -121,7 +150,7 @@ func (sl *ServerLogger) GetServerLogPath(serverID int64) string {
 // LogServerEvent logs an event to a specific server's log file
 func (sl *ServerLogger) LogServerEvent(serverID int64, level string, message string, fields map[string]interface{}) {
 	sl.mu.RLock()
-	logFile, exists := sl.loggers[serverID]
+	loggerEntry, exists := sl.loggers[serverID]
 	sl.mu.RUnlock()
 
 	if !exists {
@@ -130,7 +159,7 @@ func (sl *ServerLogger) LogServerEvent(serverID int64, level string, message str
 
 	// Create a temporary logger for this event
 	fileWriter := zerolog.ConsoleWriter{
-		Out:        logFile,
+		Out:        loggerEntry.writer,
 		TimeFormat: "2006-01-02 15:04:05",
 		NoColor:    true,
 	}

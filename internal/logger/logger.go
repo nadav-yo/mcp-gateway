@@ -14,18 +14,18 @@ var Logger zerolog.Logger
 func init() {
 	// Set up zerolog
 	zerolog.TimeFieldFormat = time.RFC3339
-	
+
 	// Configure console writer for human-readable output
 	output := zerolog.ConsoleWriter{
 		Out:        os.Stdout,
 		TimeFormat: "2006-01-02 15:04:05",
 	}
-	
+
 	Logger = zerolog.New(output).With().Timestamp().Logger()
-	
+
 	// Set log level from environment variable, default to INFO
 	setLogLevel(os.Getenv("LOG_LEVEL"))
-	
+
 	// Set global logger
 	log.Logger = Logger
 }
