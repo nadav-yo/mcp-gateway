@@ -171,6 +171,7 @@ func (s *Server) Router() http.Handler {
 	// Web UI routes
 	r.HandleFunc("/ui", s.handleUI).Methods("GET")
 	r.HandleFunc("/ui/login", s.handleLoginPage).Methods("GET")
+	r.HandleFunc("/ui/change-password", s.handleChangePasswordPage).Methods("GET")
 	r.HandleFunc("/ui/admin", s.handleAdminPage).Methods("GET")
 	r.HandleFunc("/ui/user", s.handleUserPage).Methods("GET")
 	
@@ -226,6 +227,25 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		// Auth disabled - redirect to admin
 		http.Redirect(w, r, "/ui/admin", http.StatusFound)
 	}
+}
+
+// handleChangePasswordPage serves the change password page
+func (s *Server) handleChangePasswordPage(w http.ResponseWriter, r *http.Request) {
+	if !s.config.Security.EnableAuth {
+		// Auth disabled - redirect to admin
+		http.Redirect(w, r, "/ui/admin", http.StatusFound)
+		return
+	}
+
+	// Check authentication
+	if !s.isAuthenticated(r) {
+		// Not authenticated - redirect to login
+		http.Redirect(w, r, "/ui/login", http.StatusFound)
+		return
+	}
+
+	// Serve change password page with auth status injected
+	s.serveHTMLWithAuth(w, "web/change-password.html")
 }
 
 // handleAdminPage serves the admin panel (protected route for admins only)

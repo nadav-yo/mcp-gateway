@@ -42,7 +42,7 @@ class TokenManager {
                     </div>
                     <div class="token-meta">Token: ****...${token.token ? token.token.slice(-4) : '****'}</div>
                 </div>
-                <button class="btn btn-sm btn-danger" onclick="tokenManager.revokeToken(${token.id})">Revoke</button>
+                <button class="btn btn-sm btn-danger" onclick="window.adminPanel.tokenManager.revokeToken(${token.id})">Revoke</button>
             </div>
         `).join('');
     }
@@ -94,7 +94,7 @@ class TokenManager {
                     <strong>Token created successfully!</strong><br>
                     <div style="margin-top: 10px; padding: 10px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; display: flex; align-items: center; gap: 10px;">
                         <div style="flex: 1; font-family: monospace; word-break: break-all;">${tokenValue}</div>
-                        <button onclick="adminPanel.copyToClipboard('${tokenValue}', this)" style="padding: 4px 8px; background: #007AFF; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap;">
+                        <button onclick="window.adminPanel.copyToClipboard('${tokenValue}', this)" style="padding: 4px 8px; background: #007AFF; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap;">
                             Copy
                         </button>
                     </div>

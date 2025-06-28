@@ -111,8 +111,11 @@ class UserManager {
                 <td>${createdDate}</td>
                 <td>${updatedDate}</td>
                 <td class="user-actions-cell">
+                    ${isCurrentUser ? `
+                        <button class="btn btn-sm btn-secondary" onclick="passwordModal.open()" title="Change Your Password">Change Password</button>
+                    ` : ''}
                     ${showDeleteButton ? `
-                        <button class="btn btn-sm btn-danger" onclick="userManager.deleteUser(${user.id}, '${user.username}')">Delete</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteUserSafe(${user.id}, '${user.username}')">Delete</button>
                     ` : ''}
                 </td>
             </tr>
@@ -233,4 +236,49 @@ function showAddUserModal() {
 
 function closeAddUserModal() {
     document.getElementById('addUserModal').style.display = 'none';
+}
+
+// Wrapper functions for safe userManager access
+async function reloadUsers() {
+    try {
+        let manager = null;
+        
+        if (window.userManager) {
+            manager = window.userManager;
+        } else if (window.adminPanel && window.adminPanel.userManager) {
+            manager = window.adminPanel.userManager;
+        }
+        
+        if (manager) {
+            await manager.loadUsers();
+        } else {
+            console.error('User manager not available');
+            alert('User management is not available. Please refresh the page.');
+        }
+    } catch (error) {
+        console.error('Error reloading users:', error);
+        alert('Failed to reload users: ' + error.message);
+    }
+}
+
+async function deleteUserSafe(userId, username) {
+    try {
+        let manager = null;
+        
+        if (window.userManager) {
+            manager = window.userManager;
+        } else if (window.adminPanel && window.adminPanel.userManager) {
+            manager = window.adminPanel.userManager;
+        }
+        
+        if (manager) {
+            await manager.deleteUser(userId, username);
+        } else {
+            console.error('User manager not available');
+            alert('User management is not available. Please refresh the page.');
+        }
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        alert('Failed to delete user: ' + error.message);
+    }
 }

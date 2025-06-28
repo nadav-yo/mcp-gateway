@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCP Gateway - User</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/style.css">
     <style>
         body {
@@ -184,6 +185,16 @@
             </p>
         </div>
 
+        <!-- Account Management Section (only shown when auth is enabled) -->
+        <div id="accountManagement" class="card hidden">
+            <h2 style="margin-bottom: 20px; color: #1d1d1f;">Account Settings</h2>
+            <p style="margin-bottom: 20px; color: #666;">Manage your account settings and security.</p>
+            
+            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <button class="btn" onclick="openChangePasswordPage()">Change Password</button>
+            </div>
+        </div>
+
         <!-- Token Management Section will be loaded here -->
         <div id="tokensTabPlaceholder" class="card hidden"></div>
         
@@ -208,6 +219,7 @@
                 await checkAuthentication();
                 await userInfoManager.initialize();
                 initializeTokenManager();
+                showAccountManagement();
             } else {
                 await userInfoManager.initialize();
             }
@@ -443,6 +455,17 @@
             }
         }
         
+        function openChangePasswordPage() {
+            window.location.href = '/ui/change-password';
+        }
+        
+        function showAccountManagement() {
+            const accountMgmt = document.getElementById('accountManagement');
+            if (accountMgmt && authEnabled) {
+                accountMgmt.classList.remove('hidden');
+            }
+        }
+        
         function copyToClipboard(text, buttonElement) {
             navigator.clipboard.writeText(text).then(() => {
                 // Temporarily change button text to show success
@@ -479,6 +502,7 @@
             });
         }
     </script>
+    <script src="/static/change-password.js"></script>
     <script src="/static/userinfo.js"></script>
 </body>
 </html>

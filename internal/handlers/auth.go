@@ -76,9 +76,14 @@ type CreateUserRequest struct {
 // UpdateUserRequest represents a request to update a user
 type UpdateUserRequest struct {
 	Username string `json:"username"`
-	Password string `json:"password,omitempty"`
 	IsActive *bool  `json:"is_active,omitempty"`
 	IsAdmin  *bool  `json:"is_admin,omitempty"`
+}
+
+// ChangePasswordRequest represents a request to change password
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
 }
 
 // UserResponse represents a user in API responses
@@ -400,13 +405,8 @@ func (h *AuthHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		isAdmin = *req.IsAdmin
 	}
 
-	password := ""
-	if req.Password != "" {
-		password = req.Password
-	}
-
-	// Update the user
-	updatedUser, err := h.db.UpdateUser(userID, username, password, isActive, isAdmin)
+	// Update the user (password changes must be done through /auth/change-password)
+	updatedUser, err := h.db.UpdateUser(userID, username, "", isActive, isAdmin)
 	if err != nil {
 		h.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to update user")
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -579,6 +579,7 @@ func (h *AuthHandler) RegisterRoutes(router *mux.Router) {
 	authRouter.Use(h.AuthMiddleware)
 	authRouter.HandleFunc("/me", h.HandleMe).Methods("GET")
 	authRouter.HandleFunc("/logout", h.HandleLogout).Methods("POST")
+	authRouter.HandleFunc("/change-password", h.HandleChangePassword).Methods("POST")
 	authRouter.HandleFunc("/tokens", h.HandleCreateToken).Methods("POST")
 	authRouter.HandleFunc("/tokens", h.HandleListTokens).Methods("GET")
 	authRouter.HandleFunc("/tokens/revoke", h.HandleRevokeToken).Methods("DELETE")
@@ -627,4 +628,74 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error().Err(err).Msg("Failed to encode user info response")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
+}
+
+// HandleChangePassword handles requests to change the current user's password
+func (h *AuthHandler) HandleChangePassword(w http.ResponseWriter, r *http.Request) {
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Error().Err(err).Msg("Failed to decode change password request")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.CurrentPassword == "" {
+		http.Error(w, "Current password is required", http.StatusBadRequest)
+		return
+	}
+	if req.NewPassword == "" {
+		http.Error(w, "New password is required", http.StatusBadRequest)
+		return
+	}
+	if len(req.NewPassword) < 6 {
+		http.Error(w, "New password must be at least 6 characters long", http.StatusBadRequest)
+		return
+	}
+	if req.CurrentPassword == req.NewPassword {
+		http.Error(w, "New password must be different from current password", http.StatusBadRequest)
+		return
+	}
+
+	// Get current user from context
+	currentUser, ok := r.Context().Value("user").(*database.TokenRecord)
+	if !ok {
+		http.Error(w, "User context not found", http.StatusInternalServerError)
+		return
+	}
+
+	// Get user details to verify current password
+	user, err := h.db.GetUser(currentUser.UserID)
+	if err != nil {
+		h.logger.Error().Err(err).Int64("user_id", currentUser.UserID).Msg("Failed to get user for password change")
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify current password
+	_, err = h.db.ValidateUser(user.Username, req.CurrentPassword)
+	if err != nil {
+		h.logger.Warn().
+			Int64("user_id", currentUser.UserID).
+			Str("username", user.Username).
+			Msg("Invalid current password provided for password change")
+		http.Error(w, "Current password is incorrect", http.StatusUnauthorized)
+		return
+	}
+
+	// Update password
+	_, err = h.db.UpdateUser(currentUser.UserID, user.Username, req.NewPassword, user.IsActive, user.IsAdmin)
+	if err != nil {
+		h.logger.Error().Err(err).Int64("user_id", currentUser.UserID).Msg("Failed to update user password")
+		http.Error(w, "Failed to update password", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Password changed successfully"))
+
+	h.logger.Info().
+		Int64("user_id", currentUser.UserID).
+		Str("username", user.Username).
+		Msg("User password changed successfully")
 }

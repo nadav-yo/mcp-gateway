@@ -874,6 +874,7 @@ let tokenManager;
 
 document.addEventListener('DOMContentLoaded', function() {
     adminPanel = new AdminPanel();
+    window.adminPanel = adminPanel; // Make adminPanel globally accessible
     
     // Clean up auto-refresh timer when page is unloaded
     window.addEventListener('beforeunload', function() {
@@ -1105,4 +1106,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+// Global functions for button handlers
+function openChangePasswordPage() {
+    window.location.href = '/ui/change-password';
+}
 

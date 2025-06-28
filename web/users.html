@@ -7,9 +7,19 @@
     <div id="userError" class="error hidden"></div>
     <div id="userSuccess" class="success hidden"></div>
     
+    <!-- Account Settings Section -->
+    <div class="card" style="margin-bottom: 30px;">
+        <h2 style="margin-bottom: 20px; color: #1d1d1f;">Account Settings</h2>
+        <p style="margin-bottom: 20px; color: #666;">Manage your account settings and security.</p>
+        
+        <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+            <button class="btn" onclick="openChangePasswordPage()">Change Password</button>
+        </div>
+    </div>
+    
     <div class="actions">
         <button class="btn" onclick="showAddUserModal()">Add User</button>
-        <button class="btn btn-secondary" onclick="userManager.loadUsers()">Reload</button>
+        <button class="btn btn-secondary" onclick="reloadUsers()">Reload</button>
     </div>
     
     <div class="users-section">
