@@ -439,7 +439,7 @@ class AdminPanel {
                 // Always refresh servers data as it's the main tab
                 await Promise.all([
                     this.statisticsTab.loadStats(),
-                    this.serversTab.loadServers()
+                    this.serversTab.loadServers(true) // Skip indicator since we're already showing it
                 ]);
             } else if (currentTab === 'stats') {
                 // Refresh stats tab data

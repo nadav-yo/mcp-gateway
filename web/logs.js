@@ -18,7 +18,7 @@ class LogsTab {
             if (result.success) {
                 this.displayLogsList(result.data.logs);
             } else {
-                throw new Error(result.error || 'Failed to load logs');
+                throw new Error(result.message || result.error || 'Failed to load logs');
             }
         } catch (error) {
             console.error('Error loading logs:', error);
@@ -119,7 +119,7 @@ class LogsTab {
                 }
                 this.updateLogsLastRefreshTime();
             } else {
-                logContent.innerHTML = `<div class="error">Error loading log: ${result.error}</div>`;
+                logContent.innerHTML = `<div class="error">Error loading log: ${result.message || result.error || 'Unknown error'}</div>`;
             }
         } catch (error) {
             console.error('Error loading log content:', error);
@@ -155,7 +155,7 @@ class LogsTab {
                 }
                 this.updateLogsLastRefreshTime();
             } else {
-                logContent.innerHTML = `<div class="error">Error loading log: ${result.error}</div>`;
+                logContent.innerHTML = `<div class="error">Error loading log: ${result.message || result.error || 'Unknown error'}</div>`;
             }
         } catch (error) {
             console.error('Error loading log content:', error);

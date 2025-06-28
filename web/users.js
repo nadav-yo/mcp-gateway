@@ -144,6 +144,9 @@ class UserManager {
     async handleAddUser(e) {
         e.preventDefault();
         
+        // Clear any previous form errors
+        this.clearFormError();
+        
         const userData = {
             username: document.getElementById('addUsername').value,
             password: document.getElementById('addPassword').value,
@@ -164,7 +167,7 @@ class UserManager {
             }
         } catch (error) {
             console.error('Error creating user:', error);
-            this.showError(error.message || 'Failed to create user');
+            this.showFormError(error.message || 'Failed to create user');
         }
     }
 
@@ -226,11 +229,46 @@ class UserManager {
             setTimeout(() => successDiv.classList.add('hidden'), 3000);
         }
     }
+
+    showFormError(message) {
+        // Display error message directly from backend - no interpretation needed
+        console.log('Showing user form error:', message);
+        
+        const errorDiv = document.getElementById('addUserFormError');
+        if (errorDiv) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            errorDiv.classList.remove('hidden');
+            // Scroll the error into view
+            errorDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+            console.error('User form error div not found, using general error fallback');
+            // Fallback to general error display
+            this.showError(message);
+        }
+    }
+
+    clearFormError() {
+        const errorDiv = document.getElementById('addUserFormError');
+        if (errorDiv) {
+            errorDiv.style.display = 'none';
+            errorDiv.classList.add('hidden');
+            errorDiv.textContent = '';
+        }
+    }
 }
 
 // Global functions for add user modal
 function showAddUserModal() {
     document.getElementById('addUserForm').reset();
+    
+    // Clear any previous form errors
+    if (window.userManager) {
+        window.userManager.clearFormError();
+    } else if (window.adminPanel && window.adminPanel.userManager) {
+        window.adminPanel.userManager.clearFormError();
+    }
+    
     document.getElementById('addUserModal').style.display = 'block';
 }
 

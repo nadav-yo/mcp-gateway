@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -266,10 +267,11 @@ func (h *AuthHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	// Create the user
 	user, err := h.db.CreateUserWithAdmin(req.Username, req.Password, req.IsAdmin)
 	if err != nil {
-		h.logger.Error().Err(err).Str("username", req.Username).Msg("Failed to create user")
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			http.Error(w, "Username already exists", http.StatusConflict)
+		var userExistsErr database.ErrUserAlreadyExists
+		if errors.As(err, &userExistsErr) {
+			http.Error(w, err.Error(), http.StatusConflict)
 		} else {
+			h.logger.Error().Err(err).Msg("Failed to create user")
 			http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		}
 		return
@@ -416,8 +418,9 @@ func (h *AuthHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	updatedUser, err := h.db.UpdateUser(userID, username, "", isActive, isAdmin)
 	if err != nil {
 		h.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to update user")
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			http.Error(w, "Username already exists", http.StatusConflict)
+		var userExistsErr database.ErrUserAlreadyExists
+		if errors.As(err, &userExistsErr) {
+			http.Error(w, err.Error(), http.StatusConflict)
 		} else {
 			http.Error(w, "Failed to update user", http.StatusInternalServerError)
 		}

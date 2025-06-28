@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -151,7 +152,13 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 
 	created, err := h.db.CreateUpstreamServer(record)
 	if err != nil {
-		h.writeErrorResponse(w, http.StatusConflict, "Failed to create upstream server", err)
+		// Check if it's a duplicate name error
+		var serverExistsErr database.ErrServerAlreadyExists
+		if errors.As(err, &serverExistsErr) {
+			h.writeErrorResponse(w, http.StatusConflict, err.Error(), nil)
+		} else {
+			h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to create upstream server", err)
+		}
 		return
 	}
 
@@ -308,7 +315,13 @@ func (h *UpstreamHandler) UpdateUpstreamServer(w http.ResponseWriter, r *http.Re
 
 	updated, err := h.db.UpdateUpstreamServer(id, existing)
 	if err != nil {
-		h.writeErrorResponse(w, http.StatusConflict, "Failed to update upstream server", err)
+		// Check if it's a duplicate name error
+		var serverExistsErr database.ErrServerAlreadyExists
+		if errors.As(err, &serverExistsErr) {
+			h.writeErrorResponse(w, http.StatusConflict, err.Error(), nil)
+		} else {
+			h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to update upstream server", err)
+		}
 		return
 	}
 

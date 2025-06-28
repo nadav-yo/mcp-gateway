@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -34,6 +35,15 @@ type UpstreamServerRecord struct {
 
 // CreateUpstreamServer creates a new upstream server
 func (db *DB) CreateUpstreamServer(server *UpstreamServerRecord) (*UpstreamServerRecord, error) {
+	// Check if server name already exists
+	exists, err := db.serverNameExists(server.Name)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, ErrServerAlreadyExists{ServerName: server.Name}
+	}
+
 	headersJSON, err := json.Marshal(server.Headers)
 	if err != nil {
 		headersJSON = []byte("{}")
@@ -104,6 +114,9 @@ func (db *DB) GetUpstreamServer(id int64) (*UpstreamServerRecord, error) {
 		&server.CreatedAt, &server.UpdatedAt, &server.LastSeen, &server.Status,
 	)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrServerNotFound{ServerID: id}
+		}
 		return nil, fmt.Errorf("failed to get upstream server: %w", err)
 	}
 
@@ -158,6 +171,9 @@ func (db *DB) GetUpstreamServerByName(name string) (*UpstreamServerRecord, error
 		&server.CreatedAt, &server.UpdatedAt, &server.LastSeen, &server.Status,
 	)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrServerNotFound{ServerID: 0} // We don't have the ID in this case
+		}
 		return nil, fmt.Errorf("failed to get upstream server: %w", err)
 	}
 
@@ -336,6 +352,15 @@ func (db *DB) ListUpstreamServersForConnection(enabledOnly bool) ([]*UpstreamSer
 
 // UpdateUpstreamServer updates an existing upstream server
 func (db *DB) UpdateUpstreamServer(id int64, updates *UpstreamServerRecord) (*UpstreamServerRecord, error) {
+	// Check if server name already exists (excluding current server)
+	exists, err := db.serverNameExistsExcludingID(updates.Name, id)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, ErrServerAlreadyExists{ServerName: updates.Name}
+	}
+
 	headersJSON, err := json.Marshal(updates.Headers)
 	if err != nil {
 		headersJSON = []byte("{}")
@@ -414,7 +439,7 @@ func (db *DB) DeleteUpstreamServer(id int64) error {
 	}
 
 	if !exists {
-		return fmt.Errorf("upstream server with ID %d not found", id)
+		return ErrServerNotFound{ServerID: id}
 	}
 
 	query := `DELETE FROM upstream_servers WHERE id = ?`
@@ -429,10 +454,32 @@ func (db *DB) DeleteUpstreamServer(id int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("upstream server with ID %d not found", id)
+		return ErrServerNotFound{ServerID: id}
 	}
 
 	return nil
+}
+
+// serverNameExists checks if a server with the given name already exists
+func (db *DB) serverNameExists(name string) (bool, error) {
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM upstream_servers WHERE name = ?)"
+	err := db.conn.QueryRow(query, name).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if server name exists: %w", err)
+	}
+	return exists, nil
+}
+
+// serverNameExistsExcludingID checks if a server with the given name exists, excluding a specific ID
+func (db *DB) serverNameExistsExcludingID(name string, excludeID int64) (bool, error) {
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM upstream_servers WHERE name = ? AND id != ?)"
+	err := db.conn.QueryRow(query, name, excludeID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if server name exists: %w", err)
+	}
+	return exists, nil
 }
 
 // ToUpstreamServer converts a database record to types.UpstreamServer

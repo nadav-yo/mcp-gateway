@@ -11,6 +11,7 @@ class ServersTab {
         this.adminPanel = adminPanel;
         this.lastServersData = null;
         this.currentEditingId = null;
+        this.isRefreshing = false;
     }
 
     async initialize() {
@@ -44,6 +45,7 @@ class ServersTab {
         this.currentEditingId = null;
         this.showModal('Add Server');
         this.resetForm();
+        this.clearFormError();
     }
 
     async editServer(id) {
@@ -52,6 +54,7 @@ class ServersTab {
             this.currentEditingId = id;
             this.showModal('Edit Server');
             this.populateForm(server);
+            this.clearFormError();
         } catch (error) {
             alert('Error loading server: ' + error.message);
         }
@@ -96,9 +99,9 @@ class ServersTab {
     }
 
     async refreshConnections() {
+        // Don't manage refresh indicator here since refreshData/loadServers will handle it
         const wasAutoRefreshEnabled = this.adminPanel.autoRefreshEnabled;
         this.adminPanel.autoRefreshEnabled = false;
-        this.adminPanel.showRefreshingIndicator(true);
         
         try {
             await this.makeRequest('/gateway/refresh', 'POST');
@@ -111,10 +114,19 @@ class ServersTab {
         }
     }
 
-    async loadServers() {
+    async loadServers(skipIndicator = false) {
+        // Prevent overlapping refresh operations
+        if (this.isRefreshing) {
+            return;
+        }
+        
+        this.isRefreshing = true;
         const wasAutoRefreshEnabled = this.adminPanel.autoRefreshEnabled;
         this.adminPanel.autoRefreshEnabled = false;
-        this.adminPanel.showRefreshingIndicator(true);
+        
+        if (!skipIndicator) {
+            this.adminPanel.showRefreshingIndicator(true);
+        }
         
         try {
             const [serversResponse, statusResponse] = await Promise.all([
@@ -126,7 +138,7 @@ class ServersTab {
             const statusResult = await statusResponse.json();
             
             if (!serversResult.success) {
-                throw new Error(serversResult.error || 'Failed to load servers');
+                throw new Error(serversResult.message || serversResult.error || 'Failed to load servers');
             }
             
             const servers = this.mergeServersWithTools(serversResult.data, statusResult);
@@ -139,7 +151,11 @@ class ServersTab {
         } catch (error) {
             this.showError('Error loading servers: ' + error.message);
         } finally {
+            if (!skipIndicator) {
+                this.adminPanel.showRefreshingIndicator(false);
+            }
             this.adminPanel.autoRefreshEnabled = wasAutoRefreshEnabled;
+            this.isRefreshing = false;
         }
     }
 
@@ -188,7 +204,7 @@ class ServersTab {
     async fetchServer(id) {
         const response = await this.adminPanel.makeAuthenticatedRequest(`/api/upstream-servers/${id}`);
         const result = await response.json();
-        if (!result.success) throw new Error(result.error || 'Unknown error');
+        if (!result.success) throw new Error(result.message || result.error || 'Unknown error');
         return result.data;
     }
 
@@ -201,7 +217,7 @@ class ServersTab {
         
         const response = await this.adminPanel.makeAuthenticatedRequest(url, options);
         const result = await response.json();
-        if (!result.success) throw new Error(result.error || 'Unknown error');
+        if (!result.success) throw new Error(result.message || result.error || 'Unknown error');
         return result;
     }
 
@@ -300,6 +316,7 @@ class ServersTab {
 
     closeModal() {
         document.getElementById('serverModal').style.display = 'none';
+        this.clearFormError();
     }
 
     async handleFormSubmit() {
@@ -314,7 +331,34 @@ class ServersTab {
             this.closeModal();
             await this.refreshData();
         } catch (error) {
-            alert('Error saving server: ' + error.message);
+            this.showFormError(error.message);
+        }
+    }
+
+    showFormError(message) {
+        // Display error message directly from backend - no interpretation needed
+        console.log('Showing server form error:', message);
+        
+        const errorDiv = document.getElementById('serverFormError');
+        if (errorDiv) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            errorDiv.classList.remove('hidden');
+            // Scroll the error into view
+            errorDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+            console.error('Server form error div not found, using alert fallback');
+            // Fallback to alert if error div doesn't exist
+            alert('Error saving server: ' + message);
+        }
+    }
+
+    clearFormError() {
+        const errorDiv = document.getElementById('serverFormError');
+        if (errorDiv) {
+            errorDiv.style.display = 'none';
+            errorDiv.classList.add('hidden');
+            errorDiv.textContent = '';
         }
     }
 

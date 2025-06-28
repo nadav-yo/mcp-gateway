@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -44,6 +45,15 @@ func (db *DB) CreateUser(username, password string) (*UserRecord, error) {
 
 // CreateUserWithAdmin creates a new user with hashed password and admin flag
 func (db *DB) CreateUserWithAdmin(username, password string, isAdmin bool) (*UserRecord, error) {
+	// Check if username already exists
+	exists, err := db.usernameExists(username)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, ErrUserAlreadyExists{Username: username}
+	}
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
@@ -79,6 +89,9 @@ func (db *DB) GetUser(id int64) (*UserRecord, error) {
 	var user UserRecord
 	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrUserNotFound{UserID: id}
+		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
@@ -97,6 +110,9 @@ func (db *DB) GetUserByUsername(username string) (*UserRecord, error) {
 	var user UserRecord
 	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrInvalidCredentials{Username: username}
+		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
@@ -131,6 +147,15 @@ func (db *DB) ListUsers() ([]*UserRecord, error) {
 
 // UpdateUser updates an existing user
 func (db *DB) UpdateUser(id int64, username, password string, isActive, isAdmin bool) (*UserRecord, error) {
+	// Check if username already exists (excluding current user)
+	exists, err := db.usernameExistsExcludingID(username, id)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, ErrUserAlreadyExists{Username: username}
+	}
+
 	var hashedPassword string
 	if password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -153,7 +178,7 @@ func (db *DB) UpdateUser(id int64, username, password string, isActive, isAdmin 
 	query += " WHERE id = ?"
 	args = append(args, id)
 
-	_, err := db.conn.Exec(query, args...)
+	_, err = db.conn.Exec(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
@@ -171,7 +196,7 @@ func (db *DB) DeleteUser(id int64) error {
 	}
 
 	if !exists {
-		return fmt.Errorf("user with ID %d not found", id)
+		return ErrUserNotFound{UserID: id}
 	}
 
 	// Delete user (tokens will be deleted automatically due to foreign key constraint)
@@ -200,7 +225,7 @@ func (db *DB) GetToken(tokenValue string) (*TokenRecord, error) {
 	}, 5)
 
 	if err != nil {
-		return nil, fmt.Errorf("token not found: %w", err)
+		return nil, ErrTokenNotFound{TokenID: 0} // We don't have the ID for this case
 	}
 
 	return &token, nil
@@ -231,7 +256,7 @@ func (db *DB) DeleteToken(tokenValue string) error {
 	}
 
 	if !exists {
-		return fmt.Errorf("token not found")
+		return ErrTokenNotFound{TokenID: 0} // We don't have the ID for this case
 	}
 
 	query := `DELETE FROM tokens WHERE token = ?`
@@ -282,16 +307,16 @@ func (db *DB) initializeDefaultUser() error {
 func (db *DB) ValidateUser(username, password string) (*UserRecord, error) {
 	user, err := db.GetUserByUsername(username)
 	if err != nil {
-		return nil, fmt.Errorf("invalid credentials")
+		return nil, ErrInvalidCredentials{Username: username}
 	}
 
 	if !user.IsActive {
-		return nil, fmt.Errorf("user account is disabled")
+		return nil, ErrUserDisabled{Username: username}
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 	if err != nil {
-		return nil, fmt.Errorf("invalid credentials")
+		return nil, ErrInvalidCredentials{Username: username}
 	}
 
 	return user, nil
@@ -331,12 +356,12 @@ func (db *DB) ValidateToken(token string) (*TokenRecord, error) {
 	}
 
 	if !tokenRecord.IsActive {
-		return nil, fmt.Errorf("token is disabled")
+		return nil, ErrTokenDisabled{TokenID: tokenRecord.ID}
 	}
 
 	// Check if token is expired
 	if tokenRecord.ExpiresAt != nil && time.Now().After(*tokenRecord.ExpiresAt) {
-		return nil, fmt.Errorf("token has expired")
+		return nil, ErrTokenExpired{TokenID: tokenRecord.ID}
 	}
 
 	// Update last_used timestamp asynchronously to avoid blocking validation
@@ -403,7 +428,7 @@ func (db *DB) RevokeToken(tokenID int64, userID int64) error {
 	}
 
 	if count == 0 {
-		return fmt.Errorf("token not found or not owned by user")
+		return ErrTokenNotFound{TokenID: tokenID}
 	}
 
 	// Delete the token
@@ -419,8 +444,30 @@ func (db *DB) RevokeToken(tokenID int64, userID int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("token not found or not owned by user")
+		return ErrTokenNotFound{TokenID: tokenID}
 	}
 
 	return nil
+}
+
+// usernameExists checks if a username already exists
+func (db *DB) usernameExists(username string) (bool, error) {
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)"
+	err := db.conn.QueryRow(query, username).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if username exists: %w", err)
+	}
+	return exists, nil
+}
+
+// usernameExistsExcludingID checks if a username exists, excluding a specific user ID
+func (db *DB) usernameExistsExcludingID(username string, excludeID int64) (bool, error) {
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM users WHERE username = ? AND id != ?)"
+	err := db.conn.QueryRow(query, username, excludeID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if username exists: %w", err)
+	}
+	return exists, nil
 }
