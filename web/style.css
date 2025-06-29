@@ -1072,17 +1072,92 @@ body {
     color: white;
 }
 
-/* User actions styling */
-.user-actions-cell {
+/* Server type badge styles */
+.server-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.server-type-badge.stdio {
+    background-color: #007AFF;
+    color: white;
+}
+
+.server-type-badge.http {
+    background-color: #34C759;
+    color: white;
+}
+
+.server-type-badge.ws {
+    background-color: #FF9500;
+    color: white;
+}
+
+/* Curated servers table styling */
+.servers-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+.servers-table th,
+.servers-table td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid #e5e5e7;
+}
+
+.servers-table th {
+    background-color: #f5f5f7;
+    font-weight: 600;
+    color: #1d1d1f;
+    font-size: 14px;
+}
+
+.servers-table td {
+    vertical-align: top;
+    font-size: 14px;
+}
+
+.servers-table tr:hover {
+    background-color: #f9f9fb;
+}
+
+.command-cell {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    max-width: 200px;
+    word-break: break-all;
+}
+
+.command-cell code {
+    background-color: #f5f5f7;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.args-preview {
+    color: #86868b;
+    font-style: italic;
+}
+
+.description-cell {
+    max-width: 250px;
+    word-wrap: break-word;
+}
+
+.server-actions-cell {
     white-space: nowrap;
 }
 
-.user-actions-cell .btn {
-    margin-right: 8px;
-}
-
-.user-actions-cell .btn:last-child {
-    margin-right: 0;
+.server-actions-cell .btn {
+    margin-right: 5px;
+    margin-bottom: 2px;
 }
 
 /* Account Settings styling */

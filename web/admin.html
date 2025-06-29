@@ -13,6 +13,7 @@
     <script src="/static/userinfo.js"></script>
     <script src="/static/change-password.js"></script>
     <script src="/static/servers.js"></script>
+    <script src="/static/curated-servers.js"></script>
     <script src="/static/admin.js"></script>
 </head>
 <body>
@@ -29,6 +30,7 @@
         <!-- Auth-specific tabs -->
         <div id="authTabs" class="tabs hidden">
             <div class="tab" data-tab="servers">Upstream Servers</div>
+            <div class="tab" data-tab="curated-servers">Curated Servers</div>
             <div class="tab" data-tab="stats">Statistics</div>
             <div class="tab" data-tab="logs">Logs</div>
             <div class="tab" data-tab="tokens">Token Management</div>
@@ -38,6 +40,7 @@
         <!-- Non-auth tabs (no token management) -->
         <div id="noAuthTabs" class="tabs hidden">
             <div class="tab" data-tab="servers">Upstream Servers</div>
+            <div class="tab" data-tab="curated-servers">Curated Servers</div>
             <div class="tab" data-tab="stats">Statistics</div>
             <div class="tab" data-tab="logs">Logs</div>
         </div>
@@ -53,6 +56,9 @@
 
         <!-- Users Tab will be loaded here -->
         <div id="usersTabPlaceholder"></div>
+
+        <!-- Curated Servers Tab will be loaded here -->
+        <div id="curatedServersTabPlaceholder"></div>
 
         <!-- Servers Tab will be loaded here -->
         <div id="serversTabPlaceholder"></div>

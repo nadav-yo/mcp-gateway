@@ -35,6 +35,11 @@ class AdminPanel {
         // Initialize servers tab
         this.serversTab = new ServersTab(this);
         
+        // Initialize curated servers management
+        this.curatedServerManager = new CuratedServerManager(this);
+        // Make curatedServerManager globally accessible for onclick handlers
+        window.curatedServerManager = this.curatedServerManager;
+        
         // Initialize user management (only for auth mode)
         if (this.authEnabled) {
             this.userManager = new UserManager(this);
@@ -67,6 +72,7 @@ class AdminPanel {
             this.loadStatisticsHTML(),
             this.loadLogsHTML(),
             this.loadServersHTML(),
+            this.loadCuratedServersHTML(),
             ...(this.authEnabled ? [this.loadUsersHTML(), this.loadTokensHTML()] : [])
         ]);
         
@@ -145,6 +151,16 @@ class AdminPanel {
             document.getElementById('serversTabPlaceholder').innerHTML = html;
         } catch (error) {
             console.error('Error loading servers HTML:', error);
+        }
+    }
+
+    async loadCuratedServersHTML() {
+        try {
+            const response = await fetch('/static/curated-servers.html');
+            const html = await response.text();
+            document.getElementById('curatedServersTabPlaceholder').innerHTML = html;
+        } catch (error) {
+            console.error('Error loading curated servers HTML:', error);
         }
     }
     
@@ -371,6 +387,17 @@ class AdminPanel {
                     }
                 }
                 break;
+            case 'curated-servers':
+                await this.ensureCuratedServersTabLoaded();
+                const curatedServersTab = document.getElementById('curatedServersTab');
+                if (curatedServersTab) {
+                    curatedServersTab.classList.remove('hidden');
+                    // Initialize and load curated servers when switching to tab
+                    if (this.curatedServerManager) {
+                        await this.curatedServerManager.init();
+                    }
+                }
+                break;
         }
     }
 
@@ -389,6 +416,18 @@ class AdminPanel {
     async ensureUsersTabLoaded() {
         if (!document.getElementById('usersTab')) {
             await this.loadUsersHTML();
+        }
+    }
+
+    async ensureCuratedServersTabLoaded() {
+        if (!document.getElementById('curatedServersTab')) {
+            await this.loadCuratedServersHTML();
+        }
+    }
+
+    async ensureCuratedServersTabLoaded() {
+        if (!document.getElementById('curatedServersTab')) {
+            await this.loadCuratedServersHTML();
         }
     }
 

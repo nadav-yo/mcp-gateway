@@ -65,6 +65,7 @@ type Server struct {
 	mu             sync.RWMutex
 	stats          types.GatewayStats
 	upstreamHandler *handlers.UpstreamHandler
+	curatedHandler  *handlers.CuratedServerHandler
 	authHandler     *handlers.AuthHandler
 	logger         zerolog.Logger
 	ctx            context.Context
@@ -135,6 +136,9 @@ func New(cfg *config.Config, db *database.DB) *Server {
 	// Create upstream handler with server reference
 	server.upstreamHandler = handlers.NewUpstreamHandler(db, server)
 	
+	// Create curated server handler
+	server.curatedHandler = handlers.NewCuratedServerHandler(db)
+	
 	return server
 }
 
@@ -170,6 +174,11 @@ func (s *Server) setupAuthenticatedRoutes(r *mux.Router) {
 	s.registerMCPRoutes(mcpRouter)
 	s.registerGeneralGatewayRoutes(mcpRouter)
 	
+	// Public curated servers endpoints (read-only, available to all authenticated users)
+	authenticatedRouter := r.NewRoute().Subrouter()
+	authenticatedRouter.Use(s.authHandler.AuthMiddleware)
+	s.curatedHandler.RegisterPublicRoutes(authenticatedRouter)
+	
 	// Admin-only endpoints
 	adminRouter := r.NewRoute().Subrouter()
 	adminRouter.Use(s.authHandler.AdminMiddleware)
@@ -185,6 +194,9 @@ func (s *Server) setupUnauthenticatedRoutes(r *mux.Router) {
 	s.registerMCPRoutes(r)
 	s.registerGeneralGatewayRoutes(r)
 	s.registerAdminRoutes(r)
+	
+	// Register public curated servers routes (when auth is disabled, all routes are public)
+	s.curatedHandler.RegisterPublicRoutes(r)
 	
 	// Register admin user management routes (no auth when disabled)
 	s.authHandler.RegisterAdminRoutes(r)
@@ -220,6 +232,7 @@ func (s *Server) registerAdminRoutes(router *mux.Router) {
 	
 	// Register CRUD API routes
 	s.upstreamHandler.RegisterRoutes(router)
+	s.curatedHandler.RegisterAdminRoutes(router)
 }
 
 // registerCommonRoutes registers routes available to all users
@@ -237,6 +250,9 @@ func (s *Server) registerCommonRoutes(r *mux.Router) {
 	
 	// Static file serving for CSS, JS, and HTML files
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(WebDir))))
+	
+	// Register public read-only curated server routes for all users
+	s.curatedHandler.RegisterPublicRoutes(r)
 }
 
 // handleUI handles requests to the /ui path - redirects to appropriate page

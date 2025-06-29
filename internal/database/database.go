@@ -115,6 +115,21 @@ func (db *DB) createTables() error {
 
 	CREATE INDEX IF NOT EXISTS idx_tokens_user_id ON tokens(user_id);
 	CREATE INDEX IF NOT EXISTS idx_tokens_username ON tokens(username);
+
+	CREATE TABLE IF NOT EXISTS curated_servers (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT UNIQUE NOT NULL,
+		type TEXT NOT NULL CHECK(type IN ('stdio', 'http', 'ws')),
+		url TEXT DEFAULT '',
+		command TEXT DEFAULT '[]',
+		args TEXT DEFAULT '[]',
+		description TEXT DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_curated_servers_name ON curated_servers(name);
+	CREATE INDEX IF NOT EXISTS idx_curated_servers_type ON curated_servers(type);
 	`
 
 	_, err := db.conn.Exec(query)
@@ -202,6 +217,28 @@ func (db *DB) runMigrations() error {
 		if err != nil {
 			return fmt.Errorf("failed to update admin user: %w", err)
 		}
+	}
+
+	// Run curated servers migration
+	if err := db.migrateCuratedServers(); err != nil {
+		return fmt.Errorf("failed to migrate curated servers: %w", err)
+	}
+
+	return nil
+}
+
+// migrateCuratedServers populates the curated_servers table with default entries if empty
+func (db *DB) migrateCuratedServers() error {
+	// Check if curated servers table is empty
+	var count int
+	err := db.conn.QueryRow("SELECT COUNT(*) FROM curated_servers").Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check curated servers count: %w", err)
+	}
+
+	// If table already has data, skip migration
+	if count > 0 {
+		return nil
 	}
 
 	return nil

@@ -15,7 +15,7 @@
             color: #1d1d1f;
         }
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 40px 20px;
         }
@@ -162,6 +162,99 @@
             padding: 20px;
             font-style: italic;
         }
+        
+        /* Curated Servers Styles - matching admin panel */
+        .servers-section {
+            margin-top: 30px;
+        }
+        .servers-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e5e5e7;
+        }
+        .servers-header h2 {
+            margin: 0;
+            color: #1d1d1f;
+            font-size: 20px;
+        }
+        .servers-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .servers-table th,
+        .servers-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid #e5e5e7;
+        }
+        .servers-table th {
+            background-color: #f5f5f7;
+            font-weight: 600;
+            color: #1d1d1f;
+            font-size: 14px;
+        }
+        .servers-table td {
+            vertical-align: top;
+            font-size: 14px;
+        }
+        .servers-table tr:hover {
+            background-color: #f9f9fb;
+        }
+        .command-cell {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            max-width: 200px;
+            word-break: break-all;
+        }
+        .command-cell code {
+            background-color: #f5f5f7;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .args-preview {
+            color: #86868b;
+            font-style: italic;
+        }
+        .description-cell {
+            max-width: 250px;
+            word-wrap: break-word;
+        }
+        .server-actions-cell {
+            white-space: nowrap;
+        }
+        .server-actions-cell .btn {
+            margin-right: 5px;
+            margin-bottom: 2px;
+        }
+        .server-type-badge {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        .server-type-badge.stdio {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+        .server-type-badge.http {
+            background-color: #f3e5f5;
+            color: #7b1fa2;
+        }
+        .server-type-badge.ws {
+            background-color: #e8f5e8;
+            color: #388e3c;
+        }
+        .no-data {
+            text-align: center;
+            color: #86868b;
+            padding: 40px 20px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -198,9 +291,8 @@
         <!-- Token Management Section will be loaded here -->
         <div id="tokensTabPlaceholder" class="card hidden"></div>
         
-        <div class="footer">
-            <p>For administrative access, please contact your system administrator.</p>
-        </div>
+        <!-- Curated Servers Section will be loaded here -->
+        <div id="curatedServersUserPlaceholder" class="card"></div>
     </div>
     
     <script>
@@ -213,6 +305,7 @@
         document.addEventListener('DOMContentLoaded', async function() {
             await loadUserInfoHTML();
             await loadTokensHTML();
+            await loadCuratedServersHTML();
             userInfoManager = new UserInfoManager();
             
             if (authEnabled) {
@@ -223,6 +316,9 @@
             } else {
                 await userInfoManager.initialize();
             }
+            
+            // Initialize curated servers after all HTML is loaded
+            initializeCuratedServersManager();
         });
         
         async function loadUserInfoHTML() {
@@ -249,6 +345,19 @@
                 }
             } catch (error) {
                 console.error('Error loading tokens HTML:', error);
+            }
+        }
+        
+        async function loadCuratedServersHTML() {
+            try {
+                const response = await fetch('/static/curated-servers-user.html');
+                const html = await response.text();
+                
+                document.getElementById('curatedServersUserPlaceholder').innerHTML = html;
+                
+                console.log('User curated servers HTML loaded successfully');
+            } catch (error) {
+                console.error('Error loading curated servers HTML:', error);
             }
         }
         
@@ -422,6 +531,38 @@
             });
         }
         
+        function initializeCuratedServersManager() {
+            const authConfig = {
+                authEnabled: authEnabled,
+                token: authEnabled ? localStorage.getItem('mcp_token') : null,
+                copyToClipboard: copyToClipboard
+            };
+            
+            console.log('Initializing user curated servers manager with config:', authConfig);
+            
+            // Check if the curated servers HTML is loaded
+            const curatedServersList = document.getElementById('curatedServersUserList');
+            if (!curatedServersList) {
+                console.error('curatedServersUserList element not found, waiting for HTML to load...');
+                // Try again after a short delay
+                setTimeout(() => {
+                    const retryList = document.getElementById('curatedServersUserList');
+                    if (retryList) {
+                        console.log('Found curatedServersUserList on retry');
+                        window.curatedServerUserManager = new CuratedServerUserManager(authConfig);
+                        window.curatedServerUserManager.init();
+                    } else {
+                        console.error('curatedServersUserList still not found after retry');
+                    }
+                }, 1000);
+                return;
+            }
+            
+            console.log('Found curatedServersUserList element, initializing manager');
+            window.curatedServerUserManager = new CuratedServerUserManager(authConfig);
+            window.curatedServerUserManager.init();
+        }
+        
         async function checkAuthentication() {
             const token = localStorage.getItem('mcp_token');
             if (!token) {
@@ -504,5 +645,6 @@
     </script>
     <script src="/static/change-password.js"></script>
     <script src="/static/userinfo.js"></script>
+    <script src="/static/curated-servers-user.js"></script>
 </body>
 </html>

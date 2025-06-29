@@ -1,0 +1,123 @@
+<!-- Curated Servers Management Tab -->
+<div id="curatedServersTab" class="tab-content hidden">
+    <h2>Curated Servers Management</h2>
+    <p style="margin-bottom: 20px; color: #86868b; font-size: 14px;">
+        Manage pre-configured MCP servers that can be easily deployed. These are template servers that users can quickly set up without manual configuration.
+    </p>
+    <div id="curatedServerError" class="error hidden"></div>
+    <div id="curatedServerSuccess" class="success hidden"></div>
+    
+    <div class="actions">
+        <button class="btn" onclick="showAddCuratedServerModal()">Add Curated Server</button>
+        <button class="btn btn-secondary" onclick="reloadCuratedServers()">Reload</button>
+    </div>
+    
+    <div class="servers-section">
+        <div class="servers-header">
+            <h2>Curated Servers</h2>
+            <span id="curatedServerCount">0 servers</span>
+        </div>
+        <div class="servers-list" id="curatedServersList">
+            <div class="loading">Loading curated servers...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Curated Server Modal -->
+<div class="modal" id="addCuratedServerModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Add Curated Server</h3>
+            <button class="close-btn" onclick="closeAddCuratedServerModal()">&times;</button>
+        </div>
+        <form id="addCuratedServerForm">
+            <div class="error-message hidden" id="addCuratedServerFormError"></div>
+            <div class="form-group">
+                <label class="form-label">Name *</label>
+                <input type="text" class="form-input" id="addCuratedServerName" required>
+                <small class="form-help">Unique identifier for this curated server</small>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Type *</label>
+                <select class="form-input" id="addCuratedServerType" required onchange="handleCuratedServerTypeChange()">
+                    <option value="http">HTTP</option>
+                    <option value="ws">WebSocket</option>
+                    <option value="stdio">Standard I/O (stdio)</option>
+                </select>
+            </div>
+            <div class="form-group" id="addCuratedServerUrlGroup" style="display: none;">
+                <label class="form-label">URL *</label>
+                <input type="url" class="form-input" id="addCuratedServerUrl">
+                <small class="form-help">Server endpoint URL (for HTTP/WebSocket servers)</small>
+            </div>
+            <div class="form-group" id="addCuratedServerCommandGroup" style="display: none;">
+                <label class="form-label">Command *</label>
+                <input type="text" class="form-input" id="addCuratedServerCommand">
+                <small class="form-help">Executable command (for stdio servers)</small>
+            </div>
+            <div class="form-group" id="addCuratedServerArgsGroup" style="display: none;">
+                <label class="form-label">Arguments</label>
+                <textarea class="form-input" id="addCuratedServerArgs" rows="3" placeholder="Enter arguments, one per line"></textarea>
+                <small class="form-help">Command line arguments (for stdio servers), one per line. These should be user-configurable parameters like file paths, API keys, etc. that users can customize when deploying this server.</small>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <textarea class="form-input" id="addCuratedServerDescription" rows="3" placeholder="Describe what this server does..."></textarea>
+            </div>
+            <div class="actions">
+                <button type="submit" class="btn">Create Curated Server</button>
+                <button type="button" class="btn btn-secondary" onclick="closeAddCuratedServerModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Curated Server Modal -->
+<div class="modal" id="editCuratedServerModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Edit Curated Server</h3>
+            <button class="close-btn" onclick="closeEditCuratedServerModal()">&times;</button>
+        </div>
+        <form id="editCuratedServerForm">
+            <div class="error-message hidden" id="editCuratedServerFormError"></div>
+            <input type="hidden" id="editCuratedServerId">
+            <div class="form-group">
+                <label class="form-label">Name *</label>
+                <input type="text" class="form-input" id="editCuratedServerName" required>
+                <small class="form-help">Unique identifier for this curated server</small>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Type *</label>
+                <select class="form-input" id="editCuratedServerType" required onchange="handleEditCuratedServerTypeChange()">
+                    <option value="http">HTTP</option>
+                    <option value="ws">WebSocket</option>
+                    <option value="stdio">Standard I/O (stdio)</option>
+                </select>
+            </div>
+            <div class="form-group" id="editCuratedServerUrlGroup" style="display: none;">
+                <label class="form-label">URL *</label>
+                <input type="url" class="form-input" id="editCuratedServerUrl">
+                <small class="form-help">Server endpoint URL (for HTTP/WebSocket servers)</small>
+            </div>
+            <div class="form-group" id="editCuratedServerCommandGroup" style="display: none;">
+                <label class="form-label">Command *</label>
+                <input type="text" class="form-input" id="editCuratedServerCommand">
+                <small class="form-help">Executable command (for stdio servers)</small>
+            </div>
+            <div class="form-group" id="editCuratedServerArgsGroup" style="display: none;">
+                <label class="form-label">Arguments</label>
+                <textarea class="form-input" id="editCuratedServerArgs" rows="3" placeholder="Enter arguments, one per line"></textarea>
+                <small class="form-help">Command line arguments (for stdio servers), one per line. These should be user-configurable parameters like file paths, API keys, etc. that users can customize when deploying this server.</small>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <textarea class="form-input" id="editCuratedServerDescription" rows="3" placeholder="Describe what this server does..."></textarea>
+            </div>
+            <div class="actions">
+                <button type="submit" class="btn">Update Curated Server</button>
+                <button type="button" class="btn btn-secondary" onclick="closeEditCuratedServerModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

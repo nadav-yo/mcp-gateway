@@ -223,56 +223,48 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCuratedServers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	
-	// Hard-coded curated servers list (can be expanded later)
-	curatedServers := []map[string]interface{}{
-		{
-			"name":        "filesystem",
-			"type":        "stdio",
-			"command":     "npx",
-			"args":        []string{"-y", "@modelcontextprotocol/server-filesystem"},
-			"description": "File system operations and file management",
-		},
-		{
-			"name":        "brave-search",
-			"type":        "stdio", 
-			"command":     "npx",
-			"args":        []string{"-y", "@modelcontextprotocol/server-brave-search"},
-			"description": "Search the web using Brave Search API",
-		},
-		{
-			"name":        "sqlite",
-			"type":        "stdio",
-			"command":     "npx", 
-			"args":        []string{"-y", "@modelcontextprotocol/server-sqlite"},
-			"description": "SQLite database operations",
-		},
-		{
-			"name":        "github",
-			"type":        "stdio",
-			"command":     "npx",
-			"args":        []string{"-y", "@modelcontextprotocol/server-github"},
-			"description": "GitHub repository and issue management",
-		},
-		{
-			"name":        "postgres",
-			"type":        "stdio",
-			"command":     "npx",
-			"args":        []string{"-y", "@modelcontextprotocol/server-postgres"},
-			"description": "PostgreSQL database operations",
-		},
+	// Get curated servers from database
+	curatedServers, err := s.db.ListCuratedServers()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to load curated servers from database")
+		http.Error(w, fmt.Sprintf("Failed to load curated servers: %v", err), http.StatusInternalServerError)
+		return
+	}
+	
+	// Convert to API format (maintaining backward compatibility)
+	apiServers := make([]map[string]interface{}, len(curatedServers))
+	for i, server := range curatedServers {
+		apiServer := map[string]interface{}{
+			"id":          server.ID,
+			"name":        server.Name,
+			"type":        server.Type,
+			"description": server.Description,
+		}
+		
+		// Add type-specific fields
+		if server.Type == "stdio" {
+			apiServer["command"] = server.Command
+			if len(server.Args) > 0 {
+				apiServer["args"] = server.Args
+			}
+		} else {
+			apiServer["url"] = server.URL
+		}
+		
+		apiServers[i] = apiServer
 	}
 	
 	response := map[string]interface{}{
-		"servers":    curatedServers,
-		"total":      len(curatedServers),
+		"servers":    apiServers,
+		"total":      len(apiServers),
 		"updated_at": time.Now().Format(time.RFC3339),
-		"version":    "1.0",
+		"version":    "2.0", // Increment version to indicate it's now database-backed
 	}
 	
 	s.logger.Info().
-		Int("server_count", len(curatedServers)).
+		Int("server_count", len(apiServers)).
 		Str("remote_addr", r.RemoteAddr).
-		Msg("Served curated servers list")
+		Msg("Served curated servers list from database")
 	
 	json.NewEncoder(w).Encode(response)
 }
