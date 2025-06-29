@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -32,11 +34,28 @@ type MCPServer struct {
 	// Gateway connection
 	gatewayClient *client.MCPClient
 
+	// Curation data
+	curatedServers []CuratedServer
+	curationToken  string
+
 	// Server state
 	logger    zerolog.Logger
 	mcpLogger *MCPLogger
 	ctx       context.Context
 	startTime time.Time
+	
+	// Notification channel for sending notifications to VS Code
+	notificationChan chan *types.MCPNotification
+}
+
+// CuratedServer represents a server from the gateway's curated list
+type CuratedServer struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Command     string   `json:"command,omitempty"`
+	Args        []string `json:"args,omitempty"`
+	URL         string   `json:"url,omitempty"`
+	Description string   `json:"description,omitempty"`
 }
 
 // NewMCPServer creates a new local MCP server instance
@@ -47,14 +66,16 @@ func NewMCPServer(cfg *config.Config, gatewayURL string) (*MCPServer, error) {
 // NewMCPServerWithConfig creates a new local MCP server instance with custom mcp.json path
 func NewMCPServerWithConfig(cfg *config.Config, gatewayURL, mcpConfigPath string) (*MCPServer, error) {
 	server := &MCPServer{
-		config:        cfg,
-		gatewayURL:    gatewayURL,
-		mcpConfigPath: mcpConfigPath,
-		tools:         make(map[string]*types.Tool),
-		resources:     make(map[string]*types.Resource),
-		clients:       make(map[string]*client.MCPClient),
-		logger:        logger.GetLogger("mcp-local"),
-		startTime:     time.Now(),
+		config:           cfg,
+		gatewayURL:       gatewayURL,
+		mcpConfigPath:    mcpConfigPath,
+		tools:            make(map[string]*types.Tool),
+		resources:        make(map[string]*types.Resource),
+		clients:          make(map[string]*client.MCPClient),
+		logger:           logger.GetLogger("mcp-local"),
+		startTime:        time.Now(),
+		curationToken:    os.Getenv("MCP_CURATION_TOKEN"), // Get token from environment
+		notificationChan: make(chan *types.MCPNotification, 100),
 	}
 
 	return server, nil
@@ -69,25 +90,41 @@ func (s *MCPServer) SetMCPLogger(logger *MCPLogger) {
 func (s *MCPServer) Start(ctx context.Context) error {
 	s.ctx = ctx
 
-	// Load and connect to upstream servers from mcp.json
-	if err := s.connectToUpstreamServers(); err != nil {
-		if s.mcpLogger != nil {
-			s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Failed to connect to some upstream servers: %v", err))
-		}
-	}
-
-	// Connect to gateway if URL is provided
+	// Connect to gateway first if URL is provided to get curated servers
 	if s.gatewayURL != "" {
 		if err := s.connectToGateway(); err != nil {
 			if s.mcpLogger != nil {
 				s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Failed to connect to gateway: %v", err))
 			}
+		} else {
+			// Fetch curated servers from gateway
+			if err := s.fetchCuratedServers(); err != nil {
+				if s.mcpLogger != nil {
+					s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Failed to fetch curated servers: %v", err))
+				}
+			}
 		}
 	}
 
+	// Start upstream connections asynchronously so we don't block VS Code
+	go func() {
+		// Add a small delay to ensure the initialize response is sent first
+		time.Sleep(100 * time.Millisecond)
+		
+		if err := s.connectToUpstreamServers(); err != nil {
+			if s.mcpLogger != nil {
+				s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Failed to connect to some upstream servers: %v", err))
+			}
+		}
+		
+		if s.mcpLogger != nil {
+			s.mcpLogger.Info("mcp-local", fmt.Sprintf("Upstream connections complete - servers: %d, tools: %d, resources: %d", 
+				len(s.clients), len(s.tools), len(s.resources)))
+		}
+	}()
+
 	if s.mcpLogger != nil {
-		s.mcpLogger.Info("mcp-local", fmt.Sprintf("Local MCP Server initialized - upstream_servers: %d, aggregated_tools: %d, aggregated_resources: %d", 
-			len(s.clients), len(s.tools), len(s.resources)))
+		s.mcpLogger.Info("mcp-local", "Local MCP Server ready to handle requests")
 	}
 
 	return nil
@@ -141,15 +178,17 @@ func (s *MCPServer) handleInitialize(req *types.MCPRequest) *types.MCPResponse {
 		},
 	}
 
-	if s.mcpLogger != nil {
-		s.mcpLogger.Info("mcp-local", "MCP Server initialized")
-	}
-
-	return &types.MCPResponse{
+	response := &types.MCPResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
 		Result:  result,
 	}
+
+	if s.mcpLogger != nil {
+		s.mcpLogger.Info("mcp-local", "MCP Server initialized - responding immediately")
+	}
+
+	return response
 }
 
 // handleToolsList handles the tools/list request
@@ -160,6 +199,10 @@ func (s *MCPServer) handleToolsList(req *types.MCPRequest) *types.MCPResponse {
 		tools = append(tools, *tool)
 	}
 	s.mu.RUnlock()
+
+	if s.mcpLogger != nil && len(tools) == 0 {
+		s.mcpLogger.Debug("mcp-local", "No tools available yet - upstream servers may still be connecting")
+	}
 
 	result := types.ToolListResponse{Tools: tools}
 
@@ -203,6 +246,10 @@ func (s *MCPServer) handleResourcesList(req *types.MCPRequest) *types.MCPRespons
 		resources = append(resources, *resource)
 	}
 	s.mu.RUnlock()
+
+	if s.mcpLogger != nil && len(resources) == 0 {
+		s.mcpLogger.Debug("mcp-local", "No resources available yet - upstream servers may still be connecting")
+	}
 
 	result := types.ResourceListResponse{Resources: resources}
 
@@ -294,30 +341,77 @@ func (s *MCPServer) connectToUpstreamServers() error {
 			s.mcpLogger.Info("mcp-local", fmt.Sprintf("Connecting to upstream server: %s (type: %s)", name, upstream.Type))
 		}
 
-		mcpClient := client.NewQuietMCPClient(upstream)
+		// Check if server is in curated list (if curation is enabled)
+		if s.gatewayURL != "" && s.curationToken != "" {
+			if !s.isServerCurated(upstream) {
+				if s.mcpLogger != nil {
+					s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Server %s is not in curated list, skipping connection", name))
+				}
+				continue
+			} else {
+				if s.mcpLogger != nil {
+					s.mcpLogger.Info("mcp-local", fmt.Sprintf("Server %s validated against curated list", name))
+				}
+			}
+		}
 
-		if err := mcpClient.Connect(); err != nil {
+		// Connect to upstream server with timeout protection
+		mcpClient := client.NewQuietMCPClient(upstream)
+		
+		// Use a timeout context for connection
+		connectCtx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+		
+		connectErr := make(chan error, 1)
+		go func() {
+			connectErr <- mcpClient.Connect()
+		}()
+		
+		select {
+		case err := <-connectErr:
+			cancel()
+			if err != nil {
+				if s.mcpLogger != nil {
+					s.mcpLogger.Error("mcp-local", fmt.Sprintf("Failed to connect to upstream server %s: %v", name, err))
+				}
+				continue
+			}
+		case <-connectCtx.Done():
+			cancel()
 			if s.mcpLogger != nil {
-				s.mcpLogger.Error("mcp-local", fmt.Sprintf("Failed to connect to upstream server %s: %v", name, err))
+				s.mcpLogger.Error("mcp-local", fmt.Sprintf("Timeout connecting to upstream server %s", name))
 			}
 			continue
 		}
 
 		s.clients[name] = mcpClient
 
+		// Track if we added any new tools or resources
+		toolsAdded := 0
+		resourcesAdded := 0
+
 		// Aggregate tools from this upstream server
 		for toolName, tool := range mcpClient.GetTools() {
 			s.tools[toolName] = tool
+			toolsAdded++
 		}
 
 		// Aggregate resources from this upstream server
 		for uri, resource := range mcpClient.GetResources() {
 			s.resources[uri] = resource
+			resourcesAdded++
 		}
 
 		if s.mcpLogger != nil {
 			s.mcpLogger.Info("mcp-local", fmt.Sprintf("Successfully connected to upstream server %s - tools: %d, resources: %d", 
 				name, len(mcpClient.GetTools()), len(mcpClient.GetResources())))
+		}
+
+		// Send notifications if we added tools or resources
+		if toolsAdded > 0 {
+			s.notifyToolsChanged()
+		}
+		if resourcesAdded > 0 {
+			s.notifyResourcesChanged()
 		}
 	}
 
@@ -405,7 +499,7 @@ func (s *MCPServer) connectToGateway() error {
 	upstream := &types.UpstreamServer{
 		Name:    "gateway",
 		URL:     s.gatewayURL,
-		Type:    "http", // Assume HTTP for now, could be WebSocket
+		Type:    "http",
 		Enabled: true,
 		Timeout: "30s",
 	}
@@ -424,6 +518,119 @@ func (s *MCPServer) connectToGateway() error {
 	return nil
 }
 
+// fetchCuratedServers retrieves the curated servers list from the gateway
+func (s *MCPServer) fetchCuratedServers() error {
+	if s.gatewayURL == "" {
+		return fmt.Errorf("gateway URL not configured")
+	}
+
+	if s.curationToken == "" {
+		if s.mcpLogger != nil {
+			s.mcpLogger.Warning("mcp-local", "No curation token provided (MCP_CURATION_TOKEN env var), skipping curation validation")
+		}
+		return nil
+	}
+
+	// Construct curation endpoint URL
+	curationURL := s.gatewayURL + "/gateway/curated-servers"
+	
+	if s.mcpLogger != nil {
+		s.mcpLogger.Info("mcp-local", fmt.Sprintf("Fetching curated servers from: %s", curationURL))
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest("GET", curationURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add authorization header
+	req.Header.Set("Authorization", "Bearer "+s.curationToken)
+	req.Header.Set("User-Agent", "mcp-local/1.0")
+
+	// Make the request
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch curated servers: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("gateway returned status %d", resp.StatusCode)
+	}
+
+	// Parse the response
+	var curationResponse struct {
+		Servers []CuratedServer `json:"servers"`
+		Total   int             `json:"total"`
+		Version string          `json:"version"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&curationResponse); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	s.mu.Lock()
+	s.curatedServers = curationResponse.Servers
+	s.mu.Unlock()
+
+	if s.mcpLogger != nil {
+		s.mcpLogger.Info("mcp-local", fmt.Sprintf("Successfully fetched %d curated servers from gateway", len(curationResponse.Servers)))
+	}
+
+	return nil
+}
+
+// isServerCurated checks if a server configuration matches the curated list
+func (s *MCPServer) isServerCurated(serverConfig *types.UpstreamServer) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// If no curated servers loaded, allow all (fallback behavior)
+	if len(s.curatedServers) == 0 {
+		return true
+	}
+
+	// Check if this server matches any curated server
+	for _, curated := range s.curatedServers {
+		// For stdio servers, check command and args prefix
+		if serverConfig.Type == "stdio" && curated.Type == "stdio" {
+			if len(serverConfig.Command) > 0 && serverConfig.Command[0] == curated.Command {
+				// Check if args match the curated prefix
+				if s.argsMatchPrefix(serverConfig.Command[1:], curated.Args) {
+					return true
+				}
+			}
+		}
+		
+		// For HTTP/WebSocket servers, check URL prefix
+		if (serverConfig.Type == "http" || serverConfig.Type == "websocket") && 
+		   (curated.Type == "http" || curated.Type == "websocket") {
+			if serverConfig.URL == curated.URL {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// argsMatchPrefix checks if server args match curated args prefix
+func (s *MCPServer) argsMatchPrefix(serverArgs, curatedArgs []string) bool {
+	if len(serverArgs) < len(curatedArgs) {
+		return false
+	}
+
+	for i, curatedArg := range curatedArgs {
+		if i >= len(serverArgs) || serverArgs[i] != curatedArg {
+			return false
+		}
+	}
+
+	return true
+}
+
 // errorResponse creates an error response
 func (s *MCPServer) errorResponse(id interface{}, code int, message, data string) *types.MCPResponse {
 	return &types.MCPResponse{
@@ -435,4 +642,39 @@ func (s *MCPServer) errorResponse(id interface{}, code int, message, data string
 			Data:    data,
 		},
 	}
+}
+
+// GetNotifications returns a channel to receive notifications
+func (s *MCPServer) GetNotifications() <-chan *types.MCPNotification {
+	return s.notificationChan
+}
+
+// sendNotification sends a notification to the client
+func (s *MCPServer) sendNotification(method string, params interface{}) {
+	notification := &types.MCPNotification{
+		JSONRPC: "2.0",
+		Method:  method,
+		Params:  params,
+	}
+	
+	select {
+	case s.notificationChan <- notification:
+		if s.mcpLogger != nil {
+			s.mcpLogger.Debug("mcp-local", fmt.Sprintf("Sent notification: %s", method))
+		}
+	default:
+		if s.mcpLogger != nil {
+			s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Notification channel full, dropping notification: %s", method))
+		}
+	}
+}
+
+// notifyToolsChanged sends a tools/list_changed notification
+func (s *MCPServer) notifyToolsChanged() {
+	s.sendNotification("notifications/tools/list_changed", map[string]interface{}{})
+}
+
+// notifyResourcesChanged sends a resources/list_changed notification  
+func (s *MCPServer) notifyResourcesChanged() {
+	s.sendNotification("notifications/resources/list_changed", map[string]interface{}{})
 }

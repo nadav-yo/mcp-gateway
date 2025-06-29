@@ -91,7 +91,10 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 	upstream := serverRecord.ToUpstreamServer()
 	
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	
+	// Track tools and resources before connection
+	initialToolCount := len(s.tools)
+	initialResourceCount := len(s.resources)
 	
 	// Set status to "starting" for stdio servers since they take time to initialize
 	// Log connection attempt to server-specific log file
@@ -106,6 +109,7 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 	mcpClient := client.NewMCPClientWithID(upstream, serverRecord.ID)
 	
 	if err := mcpClient.Connect(); err != nil {
+		s.mu.Unlock()
 		// Log to server-specific log file
 		logger.GetServerLogger().LogServerEvent(serverRecord.ID, "error", "Failed to connect to upstream server", map[string]interface{}{
 			"error": err.Error(),
@@ -147,6 +151,14 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 		s.prompts[name] = prompt
 	}
 
+	// Check if we added new tools or resources
+	newToolCount := len(s.tools)
+	newResourceCount := len(s.resources)
+	addedTools := newToolCount > initialToolCount
+	addedResources := newResourceCount > initialResourceCount
+	
+	s.mu.Unlock()
+
 	// Log successful connection to server-specific log file
 	logger.GetServerLogger().LogServerEvent(serverRecord.ID, "info", "Successfully connected to upstream server", map[string]interface{}{
 		"upstream": upstream.Name,
@@ -155,6 +167,8 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 	
 	// Update stats
 	s.updateStats()
+	
+	s.logger.Info().Bool("added_tools", addedTools).Bool("added_resources", addedResources).Msg("Connected to new upstream server")
 	
 	return nil
 }
@@ -200,6 +214,9 @@ func (s *Server) DisconnectUpstreamServer(serverID int64) error {
 	// Remove tools, resources, and prompts from this server
 	// Note: This is a simple approach that removes all and re-aggregates from remaining servers
 	// In a more sophisticated implementation, we would track which server contributed which items
+	initialToolCount := len(s.tools)
+	initialResourceCount := len(s.resources)
+	
 	s.tools = make(map[string]*types.Tool)
 	s.resources = make(map[string]*types.Resource)
 	s.prompts = make(map[string]*types.Prompt)
@@ -225,6 +242,12 @@ func (s *Server) DisconnectUpstreamServer(serverID int64) error {
 		}
 	}
 	
+	// Check if we removed tools or resources
+	newToolCount := len(s.tools)
+	newResourceCount := len(s.resources)
+	removedTools := newToolCount < initialToolCount
+	removedResources := newResourceCount < initialResourceCount
+	
 	// Update stats
 	s.updateStats()
 	
@@ -232,6 +255,10 @@ func (s *Server) DisconnectUpstreamServer(serverID int64) error {
 	logger.GetServerLogger().LogServerEvent(serverID, "info", "Disconnected upstream server", map[string]interface{}{
 		"server_id": serverID,
 	})
+	
+	// Send notifications if tools or resources were removed
+	s.logger.Info().Bool("removed_tools", removedTools).Bool("removed_resources", removedResources).Msg("Disconnected upstream server")
+	
 	return nil
 }
 

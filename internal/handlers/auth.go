@@ -101,7 +101,6 @@ type UserResponse struct {
 func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error().Err(err).Msg("Failed to decode login request")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -118,7 +117,7 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	expiresAt := time.Now().Add(24 * time.Hour)
 	token, err := h.db.CreateToken(user.ID, user.Username, "Login token", &expiresAt, true) // true = internal token
 	if err != nil {
-		h.logger.Error().Err(err).Msg("Failed to create token")
+		logger.GetAuditLogger().Error().Err(err).Msg("Failed to create token")
 		http.Error(w, "Failed to create token", http.StatusInternalServerError)
 		return
 	}
@@ -149,14 +148,13 @@ func (h *AuthHandler) HandleCreateToken(w http.ResponseWriter, r *http.Request) 
 
 	var req CreateTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error().Err(err).Msg("Failed to decode create token request")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	token, err := h.db.CreateToken(user.UserID, user.Username, req.Description, req.ExpiresAt, false) // false = not internal
 	if err != nil {
-		h.logger.Error().Err(err).Msg("Failed to create token")
+		logger.GetAuditLogger().Error().Err(err).Msg("Failed to create token")
 		http.Error(w, "Failed to create token", http.StatusInternalServerError)
 		return
 	}
@@ -185,7 +183,6 @@ func (h *AuthHandler) HandleListTokens(w http.ResponseWriter, r *http.Request) {
 
 	tokens, err := h.db.ListTokens(user.UserID)
 	if err != nil {
-		h.logger.Error().Err(err).Msg("Failed to list tokens")
 		http.Error(w, "Failed to list tokens", http.StatusInternalServerError)
 		return
 	}
@@ -237,7 +234,7 @@ func (h *AuthHandler) HandleRevokeToken(w http.ResponseWriter, r *http.Request) 
 
 	err := h.db.RevokeToken(id, user.UserID)
 	if err != nil {
-		h.logger.Error().Err(err).Msg("Failed to revoke token")
+		logger.GetAuditLogger().Error().Err(err).Msg("Failed to revoke token")
 		http.Error(w, "Failed to revoke token", http.StatusInternalServerError)
 		return
 	}
@@ -249,7 +246,6 @@ func (h *AuthHandler) HandleRevokeToken(w http.ResponseWriter, r *http.Request) 
 func (h *AuthHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error().Err(err).Msg("Failed to decode create user request")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -271,7 +267,6 @@ func (h *AuthHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &userExistsErr) {
 			http.Error(w, err.Error(), http.StatusConflict)
 		} else {
-			h.logger.Error().Err(err).Msg("Failed to create user")
 			http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		}
 		return
@@ -290,7 +285,7 @@ func (h *AuthHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
 
-	h.logger.Info().Str("username", user.Username).Bool("is_admin", user.IsAdmin).Msg("User created successfully")
+	logger.GetAuditLogger().Info().Str("username", user.Username).Bool("is_admin", user.IsAdmin).Msg("User created successfully")
 	
 	// Audit log for user creation
 	if adminToken, ok := r.Context().Value("user").(*database.TokenRecord); ok {
@@ -307,7 +302,6 @@ func (h *AuthHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) HandleListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.db.ListUsers()
 	if err != nil {
-		h.logger.Error().Err(err).Msg("Failed to list users")
 		http.Error(w, "Failed to list users", http.StatusInternalServerError)
 		return
 	}
@@ -341,7 +335,6 @@ func (h *AuthHandler) HandleGetUser(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.db.GetUser(userID)
 	if err != nil {
-		h.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to get user")
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
@@ -379,7 +372,6 @@ func (h *AuthHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error().Err(err).Msg("Failed to decode update user request")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -387,7 +379,6 @@ func (h *AuthHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Get the existing user
 	existingUser, err := h.db.GetUser(userID)
 	if err != nil {
-		h.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to get user for update")
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
@@ -417,7 +408,7 @@ func (h *AuthHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Update the user (password changes must be done through /auth/change-password)
 	updatedUser, err := h.db.UpdateUser(userID, username, "", isActive, isAdmin)
 	if err != nil {
-		h.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to update user")
+		logger.GetAuditLogger().Error().Err(err).Int64("user_id", userID).Msg("Failed to update user")
 		var userExistsErr database.ErrUserAlreadyExists
 		if errors.As(err, &userExistsErr) {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -475,7 +466,6 @@ func (h *AuthHandler) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	// Check if user exists and get their info for logging
 	existingUser, err := h.db.GetUser(userID)
 	if err != nil {
-		h.logger.Error().Err(err).Int64("user_id", userID).Msg("User not found for deletion")
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
@@ -483,7 +473,6 @@ func (h *AuthHandler) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	// Delete the user
 	err = h.db.DeleteUser(userID)
 	if err != nil {
-		h.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to delete user")
 		http.Error(w, "Failed to delete user", http.StatusInternalServerError)
 		return
 	}
@@ -514,7 +503,7 @@ func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	// Revoke the current token
 	err := h.db.RevokeToken(user.ID, user.UserID)
 	if err != nil {
-		h.logger.Error().Err(err).Msg("Failed to revoke current token during logout")
+		logger.GetAuditLogger().Error().Err(err).Msg("Failed to revoke current token during logout")
 		// Don't fail the logout if token revocation fails - client should still clear cookies
 	}
 
@@ -569,7 +558,6 @@ func (h *AuthHandler) AdminMiddleware(next http.Handler) http.Handler {
 			// Get user details to check admin status
 			user, err := h.db.GetUser(tokenRecord.UserID)
 			if err != nil {
-				h.logger.Error().Err(err).Int64("user_id", tokenRecord.UserID).Msg("Failed to get user for admin check")
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
@@ -619,7 +607,6 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 	// Get token record from context (set by AuthMiddleware)
 	tokenRecord, ok := r.Context().Value("user").(*database.TokenRecord)
 	if !ok {
-		h.logger.Error().Msg("User context not found in HandleMe")
 		http.Error(w, "User context not found", http.StatusInternalServerError)
 		return
 	}
@@ -627,7 +614,6 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 	// Get full user details
 	user, err := h.db.GetUser(tokenRecord.UserID)
 	if err != nil {
-		h.logger.Error().Err(err).Int64("user_id", tokenRecord.UserID).Msg("Failed to get user")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -642,7 +628,6 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(userInfo); err != nil {
-		h.logger.Error().Err(err).Msg("Failed to encode user info response")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
@@ -651,7 +636,6 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) HandleChangePassword(w http.ResponseWriter, r *http.Request) {
 	var req ChangePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error().Err(err).Msg("Failed to decode change password request")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -684,7 +668,6 @@ func (h *AuthHandler) HandleChangePassword(w http.ResponseWriter, r *http.Reques
 	// Get user details to verify current password
 	user, err := h.db.GetUser(currentUser.UserID)
 	if err != nil {
-		h.logger.Error().Err(err).Int64("user_id", currentUser.UserID).Msg("Failed to get user for password change")
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
@@ -692,10 +675,6 @@ func (h *AuthHandler) HandleChangePassword(w http.ResponseWriter, r *http.Reques
 	// Verify current password
 	_, err = h.db.ValidateUser(user.Username, req.CurrentPassword)
 	if err != nil {
-		h.logger.Warn().
-			Int64("user_id", currentUser.UserID).
-			Str("username", user.Username).
-			Msg("Invalid current password provided for password change")
 		http.Error(w, "Current password is incorrect", http.StatusUnauthorized)
 		return
 	}
@@ -703,7 +682,6 @@ func (h *AuthHandler) HandleChangePassword(w http.ResponseWriter, r *http.Reques
 	// Update password
 	_, err = h.db.UpdateUser(currentUser.UserID, user.Username, req.NewPassword, user.IsActive, user.IsAdmin)
 	if err != nil {
-		h.logger.Error().Err(err).Int64("user_id", currentUser.UserID).Msg("Failed to update user password")
 		http.Error(w, "Failed to update password", http.StatusInternalServerError)
 		return
 	}
@@ -711,7 +689,7 @@ func (h *AuthHandler) HandleChangePassword(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Password changed successfully"))
 
-	h.logger.Info().
+	logger.GetAuditLogger().Info().
 		Int64("user_id", currentUser.UserID).
 		Str("username", user.Username).
 		Msg("User password changed successfully")

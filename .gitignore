@@ -1,4 +1,5 @@
 /.vscode
 *.exe
 *.db
+mcp.json
 logs/*

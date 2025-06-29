@@ -37,6 +37,7 @@ const (
 	UpstreamPath    = "/gateway/upstream"
 	StatsPath       = "/gateway/stats"
 	RefreshPath     = "/gateway/refresh"
+	CurationPath    = "/gateway/curated-servers"
 	HealthPath      = "/health"
 	InfoPath        = "/info"
 	LogsPath        = "/api/logs/{filename}"
@@ -205,6 +206,7 @@ func (s *Server) registerMCPRoutes(router *mux.Router) {
 func (s *Server) registerGeneralGatewayRoutes(router *mux.Router) {
 	router.HandleFunc(StatusPath, s.handleGatewayStatus).Methods("GET")
 	router.HandleFunc(StatsPath, s.handleGatewayStats).Methods("GET")
+	router.HandleFunc(CurationPath, s.handleCuratedServers).Methods("GET")
 }
 
 // registerAdminRoutes registers admin-only endpoints

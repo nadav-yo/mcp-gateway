@@ -382,5 +382,5 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Global function to open change password page
 function openChangePasswordPage() {
-    window.location.href = '/ui/change-password.html';
+    window.location.href = '/ui/change-password';
 }

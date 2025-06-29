@@ -860,22 +860,50 @@ func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPRespo
 		return nil, fmt.Errorf("failed to write to stdin: %w", err)
 	}
 
-	// Read the response from stdout
-	scanner := bufio.NewScanner(c.stdout)
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return nil, fmt.Errorf("failed to read from stdout: %w", err)
-		}
-		return nil, fmt.Errorf("no response received from process")
-	}
-
-	responseBytes := scanner.Bytes()
+	// Use a channel to receive the response with timeout
+	responseChan := make(chan *types.MCPResponse, 1)
+	errorChan := make(chan error, 1)
 	
-	// Parse the response
-	var response types.MCPResponse
-	if err := json.Unmarshal(responseBytes, &response); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	go func() {
+		// Read the response from stdout
+		scanner := bufio.NewScanner(c.stdout)
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				errorChan <- fmt.Errorf("failed to read from stdout: %w", err)
+				return
+			}
+			errorChan <- fmt.Errorf("no response received from process")
+			return
+		}
+
+		responseBytes := scanner.Bytes()
+		
+		// Parse the response
+		var response types.MCPResponse
+		if err := json.Unmarshal(responseBytes, &response); err != nil {
+			errorChan <- fmt.Errorf("failed to unmarshal response: %w", err)
+			return
+		}
+
+		responseChan <- &response
+	}()
+
+	// Wait for response with timeout
+	timeout := 30 * time.Second
+	if c.upstream.Timeout != "" {
+		if d, err := time.ParseDuration(c.upstream.Timeout); err == nil {
+			timeout = d
+		}
 	}
 
-	return &response, nil
+	select {
+	case response := <-responseChan:
+		return response, nil
+	case err := <-errorChan:
+		return nil, err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("timeout waiting for response from stdio process")
+	case <-c.ctx.Done():
+		return nil, fmt.Errorf("context cancelled")
+	}
 }

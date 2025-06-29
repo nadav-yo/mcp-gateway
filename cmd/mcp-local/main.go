@@ -66,6 +66,21 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to start MCP server")
 	}
 
+	// Start a goroutine to handle notifications
+	go func() {
+		for notification := range server.GetNotifications() {
+			notificationBytes, err := json.Marshal(notification)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to marshal notification")
+				continue
+			}
+			
+			log.Debug().Str("notification", string(notificationBytes)).Msg("Sending notification")
+			fmt.Println(string(notificationBytes))
+			os.Stdout.Sync()
+		}
+	}()
+
 	// STDIO communication loop
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
@@ -80,12 +95,18 @@ func main() {
 			continue
 		}
 
+		// Debug: Log incoming request
+		log.Debug().Str("input", line).Msg("Received request")
+
 		var request types.MCPRequest
 		if err := json.Unmarshal([]byte(line), &request); err != nil {
 			log.Error().Err(err).Str("input", line).Msg("Failed to parse JSON request")
 			writeErrorResponse(nil, -32700, "Parse error", err.Error())
 			continue
 		}
+
+		// Debug: Log parsed request
+		log.Debug().Str("method", request.Method).Interface("id", request.ID).Msg("Processing request")
 
 		response := server.HandleRequest(&request)
 		if response != nil {
@@ -96,7 +117,14 @@ func main() {
 				continue
 			}
 
+			// Debug: Log outgoing response
+			log.Debug().Str("response", string(responseBytes)).Str("method", request.Method).Interface("id", request.ID).Msg("Sending response")
 			fmt.Println(string(responseBytes))
+			
+			// Ensure output is flushed immediately
+			os.Stdout.Sync()
+		} else {
+			log.Warn().Str("method", request.Method).Interface("id", request.ID).Msg("Handler returned nil response")
 		}
 	}
 
@@ -132,11 +160,11 @@ func getDefaultLocalConfig() *config.Config {
 			Description: "Local MCP Server with Gateway Integration",
 			Capabilities: config.MCPCapabilities{
 				Tools: config.ToolCapabilities{
-					ListChanged: false,
+					ListChanged: true,
 				},
 				Resources: config.ResourceCapabilities{
 					Subscribe:   false,
-					ListChanged: false,
+					ListChanged: true,
 				},
 				Logging: config.LoggingCapabilities{
 					Level: "info",

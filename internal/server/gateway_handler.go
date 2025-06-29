@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/nadav-yo/mcp-gateway/internal/client"
@@ -216,4 +217,62 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"resources":   len(s.resources),
 	}
 	json.NewEncoder(w).Encode(info)
+}
+
+// handleCuratedServers handles requests for curated MCP servers list
+func (s *Server) handleCuratedServers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	// Hard-coded curated servers list (can be expanded later)
+	curatedServers := []map[string]interface{}{
+		{
+			"name":        "filesystem",
+			"type":        "stdio",
+			"command":     "npx",
+			"args":        []string{"-y", "@modelcontextprotocol/server-filesystem"},
+			"description": "File system operations and file management",
+		},
+		{
+			"name":        "brave-search",
+			"type":        "stdio", 
+			"command":     "npx",
+			"args":        []string{"-y", "@modelcontextprotocol/server-brave-search"},
+			"description": "Search the web using Brave Search API",
+		},
+		{
+			"name":        "sqlite",
+			"type":        "stdio",
+			"command":     "npx", 
+			"args":        []string{"-y", "@modelcontextprotocol/server-sqlite"},
+			"description": "SQLite database operations",
+		},
+		{
+			"name":        "github",
+			"type":        "stdio",
+			"command":     "npx",
+			"args":        []string{"-y", "@modelcontextprotocol/server-github"},
+			"description": "GitHub repository and issue management",
+		},
+		{
+			"name":        "postgres",
+			"type":        "stdio",
+			"command":     "npx",
+			"args":        []string{"-y", "@modelcontextprotocol/server-postgres"},
+			"description": "PostgreSQL database operations",
+		},
+	}
+	
+	response := map[string]interface{}{
+		"servers":    curatedServers,
+		"total":      len(curatedServers),
+		"updated_at": time.Now().Format(time.RFC3339),
+		"version":    "1.0",
+	}
+	
+	s.logger.Info().
+		Int("server_count", len(curatedServers)).
+		Str("remote_addr", r.RemoteAddr).
+		Msg("Served curated servers list")
+	
+	json.NewEncoder(w).Encode(response)
 }

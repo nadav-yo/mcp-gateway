@@ -19,8 +19,8 @@ type DB struct {
 
 // New creates a new database connection and initializes tables
 func New(dbPath string) (*DB, error) {
-	// Configure SQLite connection string with proper settings for concurrency
-	connStr := fmt.Sprintf("%s?_busy_timeout=10000&_journal_mode=WAL&_synchronous=NORMAL&_cache_size=1000&_foreign_keys=on", dbPath)
+	// Configure SQLite connection string with optimized settings for concurrency
+	connStr := fmt.Sprintf("%s?_busy_timeout=30000&_journal_mode=WAL&_synchronous=NORMAL&_cache_size=2000&_foreign_keys=on&_temp_store=memory&_mmap_size=268435456", dbPath)
 	
 	conn, err := sql.Open("sqlite", connStr)
 	if err != nil {
@@ -28,9 +28,9 @@ func New(dbPath string) (*DB, error) {
 	}
 
 	// Configure connection pool for better concurrency handling
-	conn.SetMaxOpenConns(25)   // Limit concurrent connections
-	conn.SetMaxIdleConns(5)    // Keep some idle connections
-	conn.SetConnMaxLifetime(0) // No connection lifetime limit for SQLite
+	conn.SetMaxOpenConns(10)   // Reduce concurrent connections to avoid locking
+	conn.SetMaxIdleConns(3)    // Keep fewer idle connections
+	conn.SetConnMaxLifetime(5 * time.Minute) // Rotate connections regularly
 
 	// Test the connection
 	if err := conn.Ping(); err != nil {
@@ -140,15 +140,20 @@ func (db *DB) retryOnBusy(operation func() error, maxRetries int) error {
 			return nil
 		}
 		
-		// Check if it's a SQLITE_BUSY error
-		if strings.Contains(err.Error(), "SQLITE_BUSY") || strings.Contains(err.Error(), "database is locked") {
+		// Check if it's a SQLITE_BUSY error or database locked error
+		errStr := err.Error()
+		if strings.Contains(errStr, "SQLITE_BUSY") || 
+		   strings.Contains(errStr, "database is locked") ||
+		   strings.Contains(errStr, "locked") {
 			lastErr = err
 			// Exponential backoff with jitter
-			backoff := time.Duration(i+1) * 50 * time.Millisecond
+			backoff := time.Duration(i+1) * 100 * time.Millisecond
 			if i > 2 {
-				backoff = time.Duration(i-2) * 100 * time.Millisecond
+				backoff = time.Duration(i-1) * 250 * time.Millisecond
 			}
-			time.Sleep(backoff)
+			// Add some randomness to prevent thundering herd
+			jitter := time.Duration(time.Now().UnixNano() % 50) * time.Millisecond
+			time.Sleep(backoff + jitter)
 			continue
 		}
 		
