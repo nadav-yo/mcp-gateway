@@ -32,15 +32,15 @@ type MCPServerConfig struct {
 }
 
 // LoadMCPConfig loads and parses the mcp.json file
-func LoadMCPConfig(filePath string) (*MCPConfig, error) {
+func LoadMCPConfig(filePath string) *MCPConfig {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read mcp.json file: %w", err)
+		return nil
 	}
 
 	var config MCPConfig
 	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse mcp.json file: %w", err)
+		return nil
 	}
 
 	// Load token from environment if not set in config
@@ -50,7 +50,7 @@ func LoadMCPConfig(filePath string) (*MCPConfig, error) {
 		}
 	}
 
-	return &config, nil
+	return &config
 }
 
 // Validate validates the MCP configuration

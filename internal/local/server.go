@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"sync"
+	"strings"
 	"time"
 
 	"github.com/nadav-yo/mcp-gateway/internal/client"
@@ -19,8 +19,7 @@ import (
 // MCPServer represents a local MCP server that can connect to a gateway
 type MCPServer struct {
 	config        *config.Config
-	gatewayURL    string
-	mcpConfigPath string
+	mcpConfig 	  *MCPConfig
 	initialized   bool
 	mu            sync.RWMutex
 
@@ -36,7 +35,6 @@ type MCPServer struct {
 
 	// Curation data
 	curatedServers []CuratedServer
-	curationToken  string
 
 	// Server state
 	logger    zerolog.Logger
@@ -59,26 +57,26 @@ type CuratedServer struct {
 }
 
 // NewMCPServer creates a new local MCP server instance
-func NewMCPServer(cfg *config.Config, gatewayURL string) (*MCPServer, error) {
+func NewMCPServer(cfg *config.Config, gatewayURL string) (*MCPServer,error) {
 	return NewMCPServerWithConfig(cfg, gatewayURL, "mcp.json")
 }
 
 // NewMCPServerWithConfig creates a new local MCP server instance with custom mcp.json path
 func NewMCPServerWithConfig(cfg *config.Config, gatewayURL, mcpConfigPath string) (*MCPServer, error) {
-	server := &MCPServer{
+	mcpCfg := LoadMCPConfig(mcpConfigPath)
+	if err := mcpCfg.Validate(); err != nil {
+		return nil, fmt.Errorf("mcp.json validation failed: %w", err)
+	}
+	return &MCPServer{
 		config:           cfg,
-		gatewayURL:       gatewayURL,
-		mcpConfigPath:    mcpConfigPath,
+		mcpConfig:    	  mcpCfg,
 		tools:            make(map[string]*types.Tool),
 		resources:        make(map[string]*types.Resource),
 		clients:          make(map[string]*client.MCPClient),
 		logger:           logger.GetLogger("mcp-local"),
 		startTime:        time.Now(),
-		curationToken:    os.Getenv("MCP_CURATION_TOKEN"), // Get token from environment
 		notificationChan: make(chan *types.MCPNotification, 100),
-	}
-
-	return server, nil
+	}, nil
 }
 
 // SetMCPLogger sets the MCP-compliant logger for the server
@@ -91,7 +89,7 @@ func (s *MCPServer) Start(ctx context.Context) error {
 	s.ctx = ctx
 
 	// Connect to gateway first if URL is provided to get curated servers
-	if s.gatewayURL != "" {
+	if s.mcpConfig.CurationRegistry.URL != "" {
 		if err := s.connectToGateway(); err != nil {
 			if s.mcpLogger != nil {
 				s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Failed to connect to gateway: %v", err))
@@ -313,25 +311,8 @@ func (s *MCPServer) handleLoggingSetLevel(req *types.MCPRequest) *types.MCPRespo
 
 // connectToUpstreamServers connects to all enabled upstream servers from mcp.json
 func (s *MCPServer) connectToUpstreamServers() error {
-	// Load mcp.json configuration
-	mcpConfig, err := LoadMCPConfig(s.mcpConfigPath)
-	if err != nil {
-		return fmt.Errorf("failed to load mcp.json: %w", err)
-	}
-
-	// Validate the configuration
-	if err := mcpConfig.Validate(); err != nil {
-		if s.mcpLogger != nil {
-			s.mcpLogger.Error("mcp-local", fmt.Sprintf("mcp.json validation failed: %v", err))
-		}
-		return fmt.Errorf("mcp.json validation failed: %w", err)
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// Get enabled servers
-	enabledServers := mcpConfig.GetEnabledServers()
+	enabledServers := s.mcpConfig.GetEnabledServers()
 	if s.mcpLogger != nil {
 		s.mcpLogger.Info("mcp-local", fmt.Sprintf("Loading upstream servers from mcp.json: %d servers", len(enabledServers)))
 	}
@@ -342,7 +323,7 @@ func (s *MCPServer) connectToUpstreamServers() error {
 		}
 
 		// Check if server is in curated list (if curation is enabled)
-		if s.gatewayURL != "" && s.curationToken != "" {
+		if s.mcpConfig.CurationRegistry.URL != "" && s.mcpConfig.CurationRegistry.Token != "" {
 			if !s.isServerCurated(upstream) {
 				if s.mcpLogger != nil {
 					s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Server %s is not in curated list, skipping connection", name))
@@ -352,6 +333,10 @@ func (s *MCPServer) connectToUpstreamServers() error {
 				if s.mcpLogger != nil {
 					s.mcpLogger.Info("mcp-local", fmt.Sprintf("Server %s validated against curated list", name))
 				}
+			}
+		} else {
+			if s.mcpLogger != nil {
+				s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Curation not enabled, connecting to server %s without validation", name))
 			}
 		}
 
@@ -492,16 +477,19 @@ func (s *MCPServer) routeResourceRead(resource *types.Resource, uri string) type
 // connectToGateway establishes a connection to the MCP gateway
 func (s *MCPServer) connectToGateway() error {
 	if s.mcpLogger != nil {
-		s.mcpLogger.Info("mcp-local", fmt.Sprintf("Connecting to MCP Gateway: %s", s.gatewayURL))
+		s.mcpLogger.Info("mcp-local", fmt.Sprintf("Connecting to MCP Gateway: %s", s.mcpConfig.CurationRegistry.URL))
 	}
 
 	// Create upstream server config for the gateway
 	upstream := &types.UpstreamServer{
 		Name:    "gateway",
-		URL:     s.gatewayURL,
+		URL:     s.mcpConfig.CurationRegistry.URL,
 		Type:    "http",
 		Enabled: true,
 		Timeout: "30s",
+		Headers: map[string]string{
+			"Authorization": "Bearer " + s.mcpConfig.CurationRegistry.Token,
+		},
 	}
 
 	// Create gateway client
@@ -520,11 +508,11 @@ func (s *MCPServer) connectToGateway() error {
 
 // fetchCuratedServers retrieves the curated servers list from the gateway
 func (s *MCPServer) fetchCuratedServers() error {
-	if s.gatewayURL == "" {
+	if s.mcpConfig.CurationRegistry.URL == "" {
 		return fmt.Errorf("gateway URL not configured")
 	}
 
-	if s.curationToken == "" {
+	if s.mcpConfig.CurationRegistry.Token == "" {
 		if s.mcpLogger != nil {
 			s.mcpLogger.Warning("mcp-local", "No curation token provided (MCP_CURATION_TOKEN env var), skipping curation validation")
 		}
@@ -532,7 +520,7 @@ func (s *MCPServer) fetchCuratedServers() error {
 	}
 
 	// Construct curation endpoint URL
-	curationURL := s.gatewayURL + "/gateway/curated-servers"
+	curationURL := s.mcpConfig.CurationRegistry.URL + "/gateway/curated-servers"
 	
 	if s.mcpLogger != nil {
 		s.mcpLogger.Info("mcp-local", fmt.Sprintf("Fetching curated servers from: %s", curationURL))
@@ -545,7 +533,7 @@ func (s *MCPServer) fetchCuratedServers() error {
 	}
 
 	// Add authorization header
-	req.Header.Set("Authorization", "Bearer "+s.curationToken)
+	req.Header.Set("Authorization", "Bearer "+s.mcpConfig.CurationRegistry.Token)
 	req.Header.Set("User-Agent", "mcp-local/1.0")
 
 	// Make the request
@@ -594,25 +582,17 @@ func (s *MCPServer) isServerCurated(serverConfig *types.UpstreamServer) bool {
 
 	// Check if this server matches any curated server
 	for _, curated := range s.curatedServers {
-		// For stdio servers, check command and args prefix
 		if serverConfig.Type == "stdio" && curated.Type == "stdio" {
-			if len(serverConfig.Command) > 0 && serverConfig.Command[0] == curated.Command {
-				// Check if args match the curated prefix
-				if s.argsMatchPrefix(serverConfig.Command[1:], curated.Args) {
-					return true
-				}
+			if strings.HasPrefix(strings.Join(serverConfig.Command, " "), curated.Command)  {
+				return true
 			}
-		}
-		
-		// For HTTP/WebSocket servers, check URL prefix
-		if (serverConfig.Type == "http" || serverConfig.Type == "websocket") && 
+		} else if (serverConfig.Type == "http" || serverConfig.Type == "websocket") && 
 		   (curated.Type == "http" || curated.Type == "websocket") {
 			if serverConfig.URL == curated.URL {
 				return true
 			}
 		}
 	}
-
 	return false
 }
 
