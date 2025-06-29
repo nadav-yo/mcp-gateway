@@ -18,6 +18,13 @@ type MCPResponse struct {
 	Error   *MCPError   `json:"error,omitempty"`
 }
 
+// MCPNotification represents a generic MCP notification (no ID)
+type MCPNotification struct {
+	JSONRPC string      `json:"jsonrpc"`
+	Method  string      `json:"method"`
+	Params  interface{} `json:"params,omitempty"`
+}
+
 // MCPError represents an MCP error
 type MCPError struct {
 	Code    int         `json:"code"`

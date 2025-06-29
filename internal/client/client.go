@@ -48,6 +48,11 @@ func NewMCPClient(upstream *types.UpstreamServer) *MCPClient {
 	return NewMCPClientWithID(upstream, 0)
 }
 
+// NewQuietMCPClient creates a new MCP client with disabled logging (for STDIO MCP servers)
+func NewQuietMCPClient(upstream *types.UpstreamServer) *MCPClient {
+	return NewMCPClientWithID(upstream, -1) // Use -1 to indicate quiet mode
+}
+
 // NewMCPClientWithID creates a new MCP client for the given upstream server with a specific server ID
 func NewMCPClientWithID(upstream *types.UpstreamServer, serverID int64) *MCPClient {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -61,7 +66,10 @@ func NewMCPClientWithID(upstream *types.UpstreamServer, serverID int64) *MCPClie
 
 	// Create server-specific logger if serverID is provided
 	var clientLogger zerolog.Logger
-	if serverID > 0 {
+	if serverID == -1 {
+		// Quiet mode for local MCP server - disable all logging to avoid stdout/stderr interference
+		clientLogger = zerolog.New(io.Discard).With().Str("upstream", upstream.Name).Logger()
+	} else if serverID > 0 {
 		if serverLogger, err := logger.GetServerLogger().CreateServerLogger(serverID, upstream.Name); err == nil {
 			clientLogger = serverLogger
 		} else {

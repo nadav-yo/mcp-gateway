@@ -137,6 +137,70 @@ curl -X POST http://localhost:8080/mcp/http \
   }'
 ```
 
+# MCP Gateway & Local Server
+
+This project provides two complementary MCP (Model Context Protocol) implementations:
+
+1. **MCP Gateway** - A remote server that aggregates multiple upstream MCP servers
+2. **MCP Local Server** - A local STDIO-based server that can integrate with the gateway
+
+## Features
+
+### MCP Gateway
+- **Full MCP Protocol Support**: Implements MCP protocol version 2024-11-05
+- **Multiple Transport Options**: Supports WebSocket, HTTP, and SSE transport
+- **Upstream Server Integration**: Aggregate tools and resources from multiple upstream MCP servers
+- **Web UI**: Admin interface for managing servers, users, and monitoring
+- **Authentication & Authorization**: User management with admin/user roles
+- **Health Monitoring**: Built-in health check and statistics endpoints
+- **Graceful Shutdown**: Proper cleanup on server shutdown
+
+### MCP Local Server
+- **STDIO Transport**: Communicates via standard input/output for local process integration
+- **Gateway Integration**: Can connect to the MCP Gateway for approved server lists
+- **Local Tools & Resources**: Define and execute tools/serve resources locally
+- **Shared Client Library**: Uses the same client library as the gateway
+- **Configurable**: Flexible configuration through YAML files
+
+## Quick Start
+
+### Building Both Servers
+
+```bash
+# Unix/Linux/macOS
+./build.sh
+
+# Windows
+build.bat
+```
+
+### Running the Gateway
+
+```bash
+# Start the main gateway server
+./mcp-gateway -config config.yaml
+```
+
+### Running the Local Server
+
+```bash
+# Run standalone local server
+./mcp-local -config local-config.yaml
+
+# Run with gateway integration
+./mcp-local -config local-config.yaml -gateway http://localhost:8080
+```
+
+### Testing
+
+```bash
+# Test the gateway
+curl http://localhost:8080/health
+
+# Test the local server (STDIO)
+echo '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test-client", "version": "1.0.0"}}}' | ./mcp-local
+```
+
 ## License
 
-MIT License" 
+MIT License
