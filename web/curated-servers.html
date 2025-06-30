@@ -7,14 +7,14 @@
     <div id="curatedServerError" class="error hidden"></div>
     <div id="curatedServerSuccess" class="success hidden"></div>
     
-    <div class="actions">
-        <button class="btn" onclick="showAddCuratedServerModal()">Add Curated Server</button>
-        <button class="btn btn-secondary" onclick="reloadCuratedServers()">Reload</button>
-    </div>
     
     <div class="servers-section">
-        <div class="servers-header">
+        <div class="curated-servers-header">
             <h2>Curated Servers</h2>
+            <div class="header-controls">
+                <button class="btn" onclick="showAddCuratedServerModal()">Add Curated Server</button>
+                <button class="btn btn-secondary" onclick="reloadCuratedServers()">Reload</button>
+            </div>
             <span id="curatedServerCount">0 servers</span>
         </div>
         <div class="servers-list" id="curatedServersList">

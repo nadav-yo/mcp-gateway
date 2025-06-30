@@ -330,6 +330,78 @@ body {
     text-align: right;
 }
 
+/* Compact users header styles */
+.users-header {
+    display: grid;
+    grid-template-columns: minmax(100px, 150px) 1fr auto;
+    align-items: center;
+    gap: 15px;
+    padding: 15px 20px;
+    border-bottom: 1px solid #f0f0f0;
+    background: white;
+}
+
+.users-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    justify-self: start;
+}
+
+.users-header .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-self: center;
+}
+
+.users-header .header-controls .btn {
+    white-space: nowrap;
+}
+
+.users-header #userCount {
+    font-size: 14px;
+    color: #86868b;
+    white-space: nowrap;
+    justify-self: end;
+}
+
+/* Compact curated servers header styles */
+.curated-servers-header {
+    display: grid;
+    grid-template-columns: minmax(100px, 150px) 1fr auto;
+    align-items: center;
+    gap: 15px;
+    padding: 15px 20px;
+    border-bottom: 1px solid #f0f0f0;
+    background: white;
+}
+
+.curated-servers-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    justify-self: start;
+}
+
+.curated-servers-header .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-self: center;
+}
+
+.curated-servers-header .header-controls .btn {
+    white-space: nowrap;
+}
+
+.curated-servers-header #curatedServerCount {
+    font-size: 14px;
+    color: #86868b;
+    white-space: nowrap;
+    justify-self: end;
+}
+
 /* Search input styles */
 .search-input {
     width: 100%;
@@ -395,6 +467,39 @@ body {
     margin-bottom: 5px;
 }
 
+.server-name-line {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.server-tags {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.server-tags span {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+.server-type-tag {
+    background: #f0f0f0;
+    color: #1d1d1f;
+}
+
+.server-prefix-tag {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
 .server-url {
     color: #007AFF;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
@@ -448,12 +553,13 @@ body {
 .capability-header {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 15px 30px;
+    gap: 8px;
+    padding: 6px 30px;
     cursor: pointer;
     user-select: none;
     font-weight: 600;
     color: #1d1d1f;
+    font-size: 13px;
 }
 
 .capability-header:hover {
@@ -558,6 +664,7 @@ body {
     width: 100%;
     margin: 0 30px;
     border-collapse: collapse;
+    font-size: 12px;
 }
 
 .tools-table th,
@@ -566,9 +673,10 @@ body {
 .prompts-table td,
 .resources-table th,
 .resources-table td {
-    padding: 10px;
+    padding: 6px 10px;
     text-align: left;
     border-bottom: 1px solid #f0f0f0;
+    font-size: 12px;
 }
 
 .tools-table th,
@@ -577,6 +685,7 @@ body {
     background: #f8f9fa;
     font-weight: 600;
     color: #1d1d1f;
+    font-size: 11px;
 }
 
 .tools-table tbody tr:hover,
@@ -593,6 +702,7 @@ body {
     color: #86868b;
     font-style: italic;
     text-align: center;
+    font-size: 12px;
 }
 
 .tool-name {
@@ -604,14 +714,6 @@ body {
     color: #6c757d;
     max-width: 300px;
     word-wrap: break-word;
-}
-
-.no-tools {
-    color: #86868b;
-    font-style: italic;
-    font-size: 12px;
-    text-align: center;
-    padding: 20px;
 }
 
 .status-connected {
@@ -1467,3 +1569,51 @@ body {
         min-width: 250px;
     }
 }
+
+/* Responsive adjustments for compact users header */
+@media (max-width: 768px) {
+    .users-header {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        text-align: center;
+    }
+    
+    .users-header h2 {
+        justify-self: center;
+    }
+    
+    .users-header .header-controls {
+        justify-self: center;
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .users-header #userCount {
+        justify-self: center;
+    }
+}
+
+/* Responsive adjustments for compact curated servers header */
+@media (max-width: 768px) {
+    .curated-servers-header {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        text-align: center;
+    }
+    
+    .curated-servers-header h2 {
+        justify-self: center;
+    }
+    
+    .curated-servers-header .header-controls {
+        justify-self: center;
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .curated-servers-header #curatedServerCount {
+        justify-self: center;
+    }
+}
+
+

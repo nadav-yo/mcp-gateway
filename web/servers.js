@@ -293,17 +293,19 @@ class ServersTab {
             <div class="server-item">
                 <div class="server-main">
                     <div class="server-info">
-                        <div class="server-name">${this.adminPanel.escapeHtml(server.name)}</div>
+                        <div class="server-name-line">
+                            <span class="server-name">${this.adminPanel.escapeHtml(server.name)}</span>
+                            <div class="server-tags">
+                                <span class="server-status status-${displayStatus}">
+                                    ${displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1)}
+                                </span>
+                                <span class="server-type-tag">Type: ${server.type}</span>
+                                ${server.prefix ? `<span class="server-prefix-tag">Prefix: ${this.adminPanel.escapeHtml(server.prefix)}</span>` : ''}
+                                ${authInfo}
+                            </div>
+                        </div>
                         <div class="server-url">${this.adminPanel.escapeHtml(displayUrl)}</div>
                         ${server.description ? `<div class="server-description">${this.adminPanel.escapeHtml(server.description)}</div>` : ''}
-                        <div class="server-meta">
-                            <span class="server-status status-${displayStatus}">
-                                ${displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1)}
-                            </span>
-                            <span>Type: ${server.type}</span>
-                            ${server.prefix ? `<span>Prefix: ${this.adminPanel.escapeHtml(server.prefix)}</span>` : ''}
-                            ${authInfo}
-                        </div>
                     </div>
                     <div class="server-actions">
                         <button class="btn btn-sm btn-secondary" onclick="serversTab.editServer(${server.id})">Edit</button>

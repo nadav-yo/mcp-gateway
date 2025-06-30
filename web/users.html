@@ -17,17 +17,16 @@
         </div>
     </div>
     
-    <div class="actions">
-        <button class="btn" onclick="showAddUserModal()">Add User</button>
-        <button class="btn btn-secondary" onclick="reloadUsers()">Reload</button>
-    </div>
-    
-    <div class="users-section">
+    <div class="servers-section">
         <div class="users-header">
             <h2>Users</h2>
+            <div class="header-controls">
+                <button class="btn" onclick="showAddUserModal()">Add User</button>
+                <button class="btn btn-secondary" onclick="reloadUsers()">Reload</button>
+            </div>
             <span id="userCount">0 users</span>
         </div>
-        <div class="users-list" id="usersList">
+        <div class="servers-list" id="usersList">
             <div class="loading">Loading users...</div>
         </div>
     </div>
