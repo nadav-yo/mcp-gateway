@@ -35,40 +35,40 @@ func NewUpstreamHandler(db *database.DB, server ServerInterface) *UpstreamHandle
 
 // CreateUpstreamServerRequest represents the request to create an upstream server
 type CreateUpstreamServerRequest struct {
-	Name        string            `json:"name" binding:"required"`
-	URL         string            `json:"url,omitempty"`
-	Command     []string          `json:"command,omitempty"`
-	Type        string            `json:"type" binding:"required"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Timeout     string            `json:"timeout,omitempty"`
-	Enabled     bool              `json:"enabled"`
-	Prefix      string            `json:"prefix,omitempty"`
-	Description string            `json:"description,omitempty"`
+	Name        string             `json:"name" binding:"required"`
+	URL         string             `json:"url,omitempty"`
+	Command     []string           `json:"command,omitempty"`
+	Type        string             `json:"type" binding:"required"`
+	Headers     map[string]string  `json:"headers,omitempty"`
+	Timeout     string             `json:"timeout,omitempty"`
+	Enabled     bool               `json:"enabled"`
+	Prefix      string             `json:"prefix,omitempty"`
+	Description string             `json:"description,omitempty"`
 	Auth        *AuthConfigRequest `json:"auth,omitempty"`
 }
 
 // UpdateUpstreamServerRequest represents the request to update an upstream server
 type UpdateUpstreamServerRequest struct {
-	Name        string            `json:"name,omitempty"`
-	URL         string            `json:"url,omitempty"`
-	Command     []string          `json:"command,omitempty"`
-	Type        string            `json:"type,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Timeout     string            `json:"timeout,omitempty"`
-	Enabled     *bool             `json:"enabled,omitempty"`
-	Prefix      string            `json:"prefix,omitempty"`
-	Description string            `json:"description,omitempty"`
+	Name        string             `json:"name,omitempty"`
+	URL         string             `json:"url,omitempty"`
+	Command     []string           `json:"command,omitempty"`
+	Type        string             `json:"type,omitempty"`
+	Headers     map[string]string  `json:"headers,omitempty"`
+	Timeout     string             `json:"timeout,omitempty"`
+	Enabled     *bool              `json:"enabled,omitempty"`
+	Prefix      string             `json:"prefix,omitempty"`
+	Description string             `json:"description,omitempty"`
 	Auth        *AuthConfigRequest `json:"auth,omitempty"`
 }
 
 // AuthConfigRequest represents authentication configuration in API requests
 type AuthConfigRequest struct {
-	Type         string `json:"type"`                    // "bearer", "basic", "api-key"
-	BearerToken  string `json:"bearer_token,omitempty"`  // Bearer token
-	Username     string `json:"username,omitempty"`      // For basic auth
-	Password     string `json:"password,omitempty"`      // For basic auth
-	APIKey       string `json:"api_key,omitempty"`       // API key
-	HeaderName   string `json:"header_name,omitempty"`   // Custom header name for API key
+	Type        string `json:"type"`                   // "bearer", "basic", "api-key"
+	BearerToken string `json:"bearer_token,omitempty"` // Bearer token
+	Username    string `json:"username,omitempty"`     // For basic auth
+	Password    string `json:"password,omitempty"`     // For basic auth
+	APIKey      string `json:"api_key,omitempty"`      // API key
+	HeaderName  string `json:"header_name,omitempty"`  // Custom header name for API key
 }
 
 // APIResponse represents a standard API response
@@ -101,7 +101,7 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 
 	// Validate type-specific requirements
 	if req.Type == "stdio" {
-		if req.Command == nil || len(req.Command) == 0 {
+		if len(req.Command) == 0 {
 			h.writeErrorResponse(w, http.StatusBadRequest, "Command is required for stdio servers", nil)
 			return
 		}
@@ -168,7 +168,7 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 			if err := h.server.ConnectUpstreamServer(created.ID); err != nil {
 				// Log to server-specific log file
 				logger.GetServerLogger().LogServerEvent(created.ID, "error", "Failed to connect to newly created upstream server", map[string]interface{}{
-					"error": err.Error(),
+					"error":       err.Error(),
 					"server_name": created.Name,
 				})
 			}
@@ -176,7 +176,7 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 	}
 
 	h.writeSuccessResponse(w, http.StatusCreated, "Upstream server created successfully", created)
-	
+
 	// Audit log for server creation
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
 		logger.GetAuditLogger().Info().
@@ -216,7 +216,7 @@ func (h *UpstreamHandler) GetUpstreamServer(w http.ResponseWriter, r *http.Reque
 // ListUpstreamServers handles GET /api/upstream-servers
 func (h *UpstreamHandler) ListUpstreamServers(w http.ResponseWriter, r *http.Request) {
 	enabledOnly := r.URL.Query().Get("enabled") == "true"
-	
+
 	servers, err := h.db.ListUpstreamServers(enabledOnly)
 	if err != nil {
 		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to list upstream servers", err)
@@ -273,10 +273,10 @@ func (h *UpstreamHandler) UpdateUpstreamServer(w http.ResponseWriter, r *http.Re
 			return
 		}
 		existing.Type = req.Type
-		
+
 		// Validate type-specific requirements
 		if req.Type == "stdio" {
-			if (req.Command == nil || len(req.Command) == 0) && (existing.Command == nil || len(existing.Command) == 0) {
+			if len(req.Command) == 0 && len(existing.Command) == 0 {
 				h.writeErrorResponse(w, http.StatusBadRequest, "Command is required for stdio servers", nil)
 				return
 			}
@@ -326,7 +326,7 @@ func (h *UpstreamHandler) UpdateUpstreamServer(w http.ResponseWriter, r *http.Re
 	}
 
 	h.writeSuccessResponse(w, http.StatusOK, "Upstream server updated successfully", updated)
-	
+
 	// Audit log for server update
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
 		logger.GetAuditLogger().Info().
@@ -378,7 +378,7 @@ func (h *UpstreamHandler) DeleteUpstreamServer(w http.ResponseWriter, r *http.Re
 	}
 
 	h.writeSuccessResponse(w, http.StatusOK, "Upstream server deleted successfully", nil)
-	
+
 	// Audit log for server deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
 		logger.GetAuditLogger().Info().
@@ -427,12 +427,12 @@ func (h *UpstreamHandler) ToggleUpstreamServer(w http.ResponseWriter, r *http.Re
 		logger.GetServerLogger().LogServerEvent(id, "info", "Server has been disabled", map[string]interface{}{
 			"server_name": updated.Name,
 		})
-		
+
 		go func() {
 			if err := h.server.DisconnectUpstreamServer(id); err != nil {
 				// Log to server-specific log file
 				logger.GetServerLogger().LogServerEvent(id, "error", "Failed to disconnect upstream server when disabling", map[string]interface{}{
-					"error": err.Error(),
+					"error":       err.Error(),
 					"server_name": updated.Name,
 				})
 			}
@@ -443,7 +443,7 @@ func (h *UpstreamHandler) ToggleUpstreamServer(w http.ResponseWriter, r *http.Re
 			if err := h.server.ConnectUpstreamServer(id); err != nil {
 				// Log to server-specific log file
 				logger.GetServerLogger().LogServerEvent(id, "error", "Failed to connect to upstream server when enabling", map[string]interface{}{
-					"error": err.Error(),
+					"error":       err.Error(),
 					"server_name": updated.Name,
 				})
 			}
@@ -482,7 +482,7 @@ func (h *UpstreamHandler) GetServerLog(w http.ResponseWriter, r *http.Request) {
 
 	// Get log file path
 	logPath := logger.GetServerLogger().GetServerLogPath(id)
-	
+
 	// Check if log file exists
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
 		h.writeErrorResponse(w, http.StatusNotFound, "Log file not found", nil)
@@ -501,7 +501,7 @@ func (h *UpstreamHandler) GetServerLog(w http.ResponseWriter, r *http.Request) {
 			h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to read log file for download", err)
 			return
 		}
-		
+
 		// Serve the file for download
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=server-%d.log", id))
@@ -559,11 +559,11 @@ func (h *UpstreamHandler) ListServerLogs(w http.ResponseWriter, r *http.Request)
 			if n, err := fmt.Sscanf(logFile, "server-%d.log", &serverID); n == 1 && err == nil {
 				if server, err := h.db.GetUpstreamServer(serverID); err == nil {
 					logs = append(logs, map[string]interface{}{
-						"filename":   logFile,
-						"server_id":  serverID,
+						"filename":    logFile,
+						"server_id":   serverID,
 						"server_name": server.Name,
-						"size":       info.Size(),
-						"modified":   info.ModTime(),
+						"size":        info.Size(),
+						"modified":    info.ModTime(),
 					})
 				}
 			}
@@ -616,7 +616,7 @@ func (h *UpstreamHandler) tailLogFile(filepath string, lines int) ([]byte, error
 		// Split into lines and prepend to result
 		chunk := string(buffer)
 		chunkLines := strings.Split(chunk, "\n")
-		
+
 		// Prepend lines (except the first one which might be partial)
 		for i := len(chunkLines) - 1; i >= 0; i-- {
 			if len(chunkLines[i]) > 0 || (i == len(chunkLines)-1 && offset == 0) {
@@ -648,7 +648,7 @@ func (h *UpstreamHandler) tailLogFile(filepath string, lines int) ([]byte, error
 // RegisterRoutes registers all upstream server routes
 func (h *UpstreamHandler) RegisterRoutes(r *mux.Router) {
 	api := r.PathPrefix("/api").Subrouter()
-	
+
 	// Upstream servers CRUD
 	api.HandleFunc("/upstream-servers", h.CreateUpstreamServer).Methods("POST")
 	api.HandleFunc("/upstream-servers", h.ListUpstreamServers).Methods("GET")
@@ -656,7 +656,7 @@ func (h *UpstreamHandler) RegisterRoutes(r *mux.Router) {
 	api.HandleFunc("/upstream-servers/{id:[0-9]+}", h.UpdateUpstreamServer).Methods("PUT")
 	api.HandleFunc("/upstream-servers/{id:[0-9]+}", h.DeleteUpstreamServer).Methods("DELETE")
 	api.HandleFunc("/upstream-servers/{id:[0-9]+}/toggle", h.ToggleUpstreamServer).Methods("POST")
-	
+
 	// Server logs endpoints
 	api.HandleFunc("/upstream-servers/{id:[0-9]+}/logs", h.GetServerLog).Methods("GET")
 	api.HandleFunc("/logs", h.ListServerLogs).Methods("GET")
@@ -666,28 +666,28 @@ func (h *UpstreamHandler) RegisterRoutes(r *mux.Router) {
 func (h *UpstreamHandler) writeSuccessResponse(w http.ResponseWriter, statusCode int, message string, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	
+
 	response := APIResponse{
 		Success: true,
 		Message: message,
 		Data:    data,
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
 }
 
 func (h *UpstreamHandler) writeErrorResponse(w http.ResponseWriter, statusCode int, message string, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	
+
 	response := APIResponse{
 		Success: false,
 		Message: message,
 	}
-	
+
 	if err != nil {
 		response.Error = err.Error()
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
 }

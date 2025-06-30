@@ -38,9 +38,9 @@ type LoginRequest struct {
 
 // LoginResponse represents a login response
 type LoginResponse struct {
-	Token     string    `json:"token"`
+	Token     string     `json:"token"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	User      UserInfo  `json:"user"`
+	User      UserInfo   `json:"user"`
 }
 
 // UserInfo represents user information returned in responses
@@ -108,7 +108,7 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// Validate user credentials
 	user, err := h.db.ValidateUser(req.Username, req.Password)
 	if err != nil {
-		h.logger.Warn().Str("username", req.Username).Msg("Login attempt failed")
+		logger.GetAuditLogger().Warn().Str("username", req.Username).Msg("Login attempt failed")
 		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
 		return
 	}
@@ -286,7 +286,7 @@ func (h *AuthHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 
 	logger.GetAuditLogger().Info().Str("username", user.Username).Bool("is_admin", user.IsAdmin).Msg("User created successfully")
-	
+
 	// Audit log for user creation
 	if adminToken, ok := r.Context().Value("user").(*database.TokenRecord); ok {
 		logger.GetAuditLogger().Info().

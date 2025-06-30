@@ -21,6 +21,11 @@ class PasswordChanger {
             cancelBtn.addEventListener('click', () => this.handleCancel());
         }
 
+        const continueBtn = document.getElementById('continueBtn');
+        if (continueBtn) {
+            continueBtn.addEventListener('click', () => this.handleCancel());
+        }
+
         // Add real-time password confirmation validation
         const confirmPasswordInput = document.getElementById('confirmPassword');
         const newPasswordInput = document.getElementById('newPassword');
@@ -77,6 +82,19 @@ class PasswordChanger {
         }
     }
 
+    showSuccessView() {
+        // Hide the form section and show the success section
+        const formSection = document.getElementById('passwordFormSection');
+        const successSection = document.getElementById('passwordSuccessSection');
+        
+        if (formSection) {
+            formSection.classList.add('hidden');
+        }
+        if (successSection) {
+            successSection.classList.remove('hidden');
+        }
+    }
+
     async handleSubmit(event) {
         event.preventDefault();
         this.clearMessages();
@@ -126,13 +144,12 @@ class PasswordChanger {
             });
 
             if (response.ok) {
-                this.showSuccess('Password changed successfully');
-                this.form.reset();
+                this.showSuccessView();
                 
-                // Auto-redirect after 2 seconds
+                // Auto-redirect after 3 seconds
                 setTimeout(() => {
                     this.handleCancel();
-                }, 2000);
+                }, 3000);
             } else {
                 const errorData = await response.text();
                 this.showError(errorData || 'Failed to change password');
@@ -282,6 +299,32 @@ class PasswordChangeModal {
         }
     }
 
+    disableButtons() {
+        const submitBtn = this.form.querySelector('button[type="submit"]');
+        const cancelBtn = this.form.querySelector('button[type="button"]');
+        
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Password Changed';
+        }
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+        }
+    }
+
+    enableButtons() {
+        const submitBtn = this.form.querySelector('button[type="submit"]');
+        const cancelBtn = this.form.querySelector('button[type="button"]');
+        
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Change Password';
+        }
+        if (cancelBtn) {
+            cancelBtn.disabled = false;
+        }
+    }
+
     open() {
         if (!this.modal) {
             this.createModal();
@@ -289,6 +332,7 @@ class PasswordChangeModal {
 
         this.clearMessages();
         this.form.reset();
+        this.enableButtons();
 
         this.modal.style.display = 'block';
         document.getElementById('modalCurrentPassword').focus();
@@ -355,6 +399,7 @@ class PasswordChangeModal {
 
             if (response.ok) {
                 this.showSuccess('Password changed successfully');
+                this.disableButtons();
                 
                 // Auto-close after 1.5 seconds
                 setTimeout(() => {

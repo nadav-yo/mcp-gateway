@@ -634,6 +634,53 @@ body {
     flex: 1;
 }
 
+/* Success Section Styles */
+.success-section {
+    padding: 60px 30px;
+    text-align: center;
+}
+
+.success-message {
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.success-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: #34c759;
+    color: white;
+    font-size: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 30px;
+    font-weight: 300;
+}
+
+.success-message h3 {
+    font-size: 24px;
+    font-weight: 600;
+    color: #1d1d1f;
+    margin-bottom: 15px;
+}
+
+.success-message p {
+    font-size: 16px;
+    color: #86868b;
+    margin-bottom: 30px;
+    line-height: 1.5;
+}
+
+.success-actions {
+    margin-top: 30px;
+}
+
+.success-actions .btn {
+    min-width: 140px;
+}
+
 /* Error and Success Message Styles */
 .error {
     background-color: #f8d7da;
