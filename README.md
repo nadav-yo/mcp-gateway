@@ -1,4 +1,4 @@
-"# MCP Remote Server
+# MCP Remote Server
 
 This is a Model Context Protocol (MCP) remote server implementation in Go that provides a gateway for MCP clients to interact with tools, resources, and prompts over WebSocket or HTTP.
 
