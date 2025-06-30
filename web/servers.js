@@ -16,6 +16,7 @@ class ServersTab {
         this.filteredServers = []; // Store filtered servers
         this.searchTerm = '';
         this.connectedOnlyMode = false; // Track connected-only filter state
+        this.expandedStates = new Map(); // Track expanded capability sections
     }
 
     async initialize() {
@@ -289,6 +290,11 @@ class ServersTab {
             ? server.command.join(' ') : server.url || '';
         const authInfo = this.getAuthInfo(server);
         
+        // Check expanded states for this server
+        const toolsExpanded = this.expandedStates.get(`${server.id}-tools`) || false;
+        const promptsExpanded = this.expandedStates.get(`${server.id}-prompts`) || false;
+        const resourcesExpanded = this.expandedStates.get(`${server.id}-resources`) || false;
+        
         return `
             <div class="server-item">
                 <div class="server-main">
@@ -320,33 +326,33 @@ class ServersTab {
                 <div class="server-capabilities">
                     <div class="capability-section">
                         <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${index}, 'tools')">
-                            <span class="capability-toggle" id="tools-toggle-${index}">▶</span>
+                            <span class="capability-toggle ${toolsExpanded ? 'expanded' : ''}" id="tools-toggle-${index}">${toolsExpanded ? '▼' : '▶'}</span>
                             Available Tools
                             <span class="capability-count">${server.tool_details?.length || 0}</span>
                         </div>
-                        <div class="capability-content" id="tools-content-${index}">
+                        <div class="capability-content ${toolsExpanded ? 'expanded' : ''}" id="tools-content-${index}">
                             ${this.renderTools(server.tool_details || [])}
                         </div>
                     </div>
                     
                     <div class="capability-section">
                         <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${index}, 'prompts')">
-                            <span class="capability-toggle" id="prompts-toggle-${index}">▶</span>
+                            <span class="capability-toggle ${promptsExpanded ? 'expanded' : ''}" id="prompts-toggle-${index}">${promptsExpanded ? '▼' : '▶'}</span>
                             Available Prompts
                             <span class="capability-count">${server.prompt_details?.length || 0}</span>
                         </div>
-                        <div class="capability-content" id="prompts-content-${index}">
+                        <div class="capability-content ${promptsExpanded ? 'expanded' : ''}" id="prompts-content-${index}">
                             ${this.renderPrompts(server.prompt_details || [])}
                         </div>
                     </div>
                     
                     <div class="capability-section">
                         <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${index}, 'resources')">
-                            <span class="capability-toggle" id="resources-toggle-${index}">▶</span>
+                            <span class="capability-toggle ${resourcesExpanded ? 'expanded' : ''}" id="resources-toggle-${index}">${resourcesExpanded ? '▼' : '▶'}</span>
                             Available Resources
                             <span class="capability-count">${server.resource_details?.length || 0}</span>
                         </div>
-                        <div class="capability-content" id="resources-content-${index}">
+                        <div class="capability-content ${resourcesExpanded ? 'expanded' : ''}" id="resources-content-${index}">
                             ${this.renderResources(server.resource_details || [])}
                         </div>
                     </div>
@@ -434,6 +440,13 @@ class ServersTab {
         content.classList.toggle('expanded');
         toggle.textContent = content.classList.contains('expanded') ? '▼' : '▶';
         toggle.classList.toggle('expanded');
+        
+        // Save the expanded state
+        const server = this.filteredServers[serverIndex];
+        if (server) {
+            const key = `${server.id}-${capability}`;
+            this.expandedStates.set(key, content.classList.contains('expanded'));
+        }
     }
     // Form and Modal Handling
     showModal(title) {
