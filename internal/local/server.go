@@ -578,6 +578,19 @@ func (s *MCPServer) isServerCurated(serverConfig *types.UpstreamServer) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// If this is an HTTP server connecting to the curation registry itself, it's always curated
+	if serverConfig.Type == "http" && s.mcpConfig.CurationRegistry != nil {
+		curationURL := s.mcpConfig.CurationRegistry.URL
+		if curationURL[len(curationURL)-1] != '/' {
+			curationURL += "/"
+		}
+		curationURL += "mcp/http"
+
+		if serverConfig.URL == curationURL {
+			return true
+		}
+	}
+
 	// If no curated servers loaded, allow all (fallback behavior)
 	if len(s.curatedServers) == 0 {
 		return true

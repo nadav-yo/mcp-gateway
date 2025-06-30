@@ -134,10 +134,42 @@ func (msc *MCPServerConfig) ToUpstreamServer(name string) *types.UpstreamServer 
 	return upstream
 }
 
+// createCurationRegistryServer creates an UpstreamServer for the curation registry
+func (mc *MCPConfig) createCurationRegistryServer() *types.UpstreamServer {
+	if mc.CurationRegistry == nil || mc.CurationRegistry.URL == "" {
+		return nil
+	}
+
+	mcpURL := mc.CurationRegistry.URL
+	if mcpURL[len(mcpURL)-1] != '/' {
+		mcpURL += "/"
+	}
+	mcpURL += "mcp/http"
+
+	headers := make(map[string]string)
+	if mc.CurationRegistry.Token != "" {
+		headers["Authorization"] = "Bearer " + mc.CurationRegistry.Token
+	}
+
+	return &types.UpstreamServer{
+		Name:    "mcp-gateway",
+		Type:    "http",
+		URL:     mcpURL,
+		Headers: headers,
+		Enabled: true,
+	}
+}
+
 // GetEnabledServers returns a map of enabled upstream servers
 func (mc *MCPConfig) GetEnabledServers() map[string]*types.UpstreamServer {
 	servers := make(map[string]*types.UpstreamServer)
 
+	// First, automatically add the curation registry as an HTTP MCP server if configured
+	if gatewayServer := mc.createCurationRegistryServer(); gatewayServer != nil {
+		servers["mcp-gateway"] = gatewayServer
+	}
+
+	// Then add all configured servers
 	for name, serverConfig := range mc.Servers {
 		upstream := serverConfig.ToUpstreamServer(name)
 		if upstream.Enabled {

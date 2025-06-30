@@ -9,9 +9,13 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/nadav-yo/mcp-gateway/pkg/config"
+	"github.com/rs/zerolog"
 )
+
+type contextKey string
+
+const traceIDKey contextKey = "traceID"
 
 // RequestLogger provides request logging middleware
 type RequestLogger struct {
@@ -27,7 +31,7 @@ func NewRequestLogger() *RequestLogger {
 func NewRequestLoggerWithConfig(rotationConfig *config.LogRotationConfig) *RequestLogger {
 	// Create the log file path
 	logFile := filepath.Join("logs", "request.log")
-	
+
 	// Get writer with rotation if configured
 	writer, err := GetRotatingWriter(logFile, rotationConfig)
 	if err != nil {
@@ -36,13 +40,13 @@ func NewRequestLoggerWithConfig(rotationConfig *config.LogRotationConfig) *Reque
 			logger: GetLogger("request"),
 		}
 	}
-	
+
 	// Create a file-only logger
 	fileLogger := zerolog.New(writer).With().
 		Timestamp().
 		Str("component", "request").
 		Logger()
-	
+
 	return &RequestLogger{
 		logger: fileLogger,
 	}
@@ -63,28 +67,28 @@ func getUserFromContext(ctx context.Context) (userID int64, username string) {
 		if userVal.Kind() == reflect.Ptr {
 			userVal = userVal.Elem()
 		}
-		
+
 		if userVal.Kind() == reflect.Struct {
 			userIDField := userVal.FieldByName("UserID")
 			usernameField := userVal.FieldByName("Username")
-			
+
 			if userIDField.IsValid() && userIDField.CanInterface() {
 				if id, ok := userIDField.Interface().(int64); ok {
 					userID = id
 				}
 			}
-			
+
 			if usernameField.IsValid() && usernameField.CanInterface() {
 				if name, ok := usernameField.Interface().(string); ok {
 					username = name
 				}
 			}
-			
+
 			if userID != 0 && username != "" {
 				return userID, username
 			}
 		}
-		
+
 		return 0, "authenticated_user"
 	}
 	return 0, "anonymous"
@@ -95,23 +99,23 @@ func (rl *RequestLogger) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		traceID := generateTraceID()
-		
+
 		// Add trace ID to request context
-		ctx := context.WithValue(r.Context(), "traceID", traceID)
+		ctx := context.WithValue(r.Context(), traceIDKey, traceID)
 		r = r.WithContext(ctx)
-		
+
 		// Add trace ID to response headers for debugging
 		w.Header().Set("X-Trace-ID", traceID)
-		
+
 		// Extract user information (will be available after auth middleware)
 		userID, username := getUserFromContext(r.Context())
-		
+
 		// Create a response writer wrapper to capture status code
 		wrappedWriter := &responseWriter{
 			ResponseWriter: w,
 			statusCode:     200, // default status code
 		}
-		
+
 		// Log the incoming request
 		rl.logger.Info().
 			Str("trace_id", traceID).
@@ -125,10 +129,10 @@ func (rl *RequestLogger) Middleware(next http.Handler) http.Handler {
 			Str("content_type", r.Header.Get("Content-Type")).
 			Int64("content_length", r.ContentLength).
 			Msg("Request received")
-		
+
 		// Process the request
 		next.ServeHTTP(wrappedWriter, r)
-		
+
 		// Log the response
 		duration := time.Since(start)
 		rl.logger.Info().
