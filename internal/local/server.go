@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nadav-yo/mcp-gateway/internal/client"
@@ -18,10 +18,10 @@ import (
 
 // MCPServer represents a local MCP server that can connect to a gateway
 type MCPServer struct {
-	config        *config.Config
-	mcpConfig 	  *MCPConfig
-	initialized   bool
-	mu            sync.RWMutex
+	config      *config.Config
+	mcpConfig   *MCPConfig
+	initialized bool
+	mu          sync.RWMutex
 
 	// Local capabilities (aggregated from upstream servers)
 	tools     map[string]*types.Tool
@@ -41,7 +41,7 @@ type MCPServer struct {
 	mcpLogger *MCPLogger
 	ctx       context.Context
 	startTime time.Time
-	
+
 	// Notification channel for sending notifications to VS Code
 	notificationChan chan *types.MCPNotification
 }
@@ -57,19 +57,22 @@ type CuratedServer struct {
 }
 
 // NewMCPServer creates a new local MCP server instance
-func NewMCPServer(cfg *config.Config, gatewayURL string) (*MCPServer,error) {
+func NewMCPServer(cfg *config.Config, gatewayURL string) (*MCPServer, error) {
 	return NewMCPServerWithConfig(cfg, gatewayURL, "mcp.json")
 }
 
 // NewMCPServerWithConfig creates a new local MCP server instance with custom mcp.json path
 func NewMCPServerWithConfig(cfg *config.Config, gatewayURL, mcpConfigPath string) (*MCPServer, error) {
-	mcpCfg := LoadMCPConfig(mcpConfigPath)
+	mcpCfg, err := LoadMCPConfig(mcpConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load mcp.json: %w", err)
+	}
 	if err := mcpCfg.Validate(); err != nil {
 		return nil, fmt.Errorf("mcp.json validation failed: %w", err)
 	}
 	return &MCPServer{
 		config:           cfg,
-		mcpConfig:    	  mcpCfg,
+		mcpConfig:        mcpCfg,
 		tools:            make(map[string]*types.Tool),
 		resources:        make(map[string]*types.Resource),
 		clients:          make(map[string]*client.MCPClient),
@@ -108,15 +111,15 @@ func (s *MCPServer) Start(ctx context.Context) error {
 	go func() {
 		// Add a small delay to ensure the initialize response is sent first
 		time.Sleep(100 * time.Millisecond)
-		
+
 		if err := s.connectToUpstreamServers(); err != nil {
 			if s.mcpLogger != nil {
 				s.mcpLogger.Warning("mcp-local", fmt.Sprintf("Failed to connect to some upstream servers: %v", err))
 			}
 		}
-		
+
 		if s.mcpLogger != nil {
-			s.mcpLogger.Info("mcp-local", fmt.Sprintf("Upstream connections complete - servers: %d, tools: %d, resources: %d", 
+			s.mcpLogger.Info("mcp-local", fmt.Sprintf("Upstream connections complete - servers: %d, tools: %d, resources: %d",
 				len(s.clients), len(s.tools), len(s.resources)))
 		}
 	}()
@@ -342,15 +345,15 @@ func (s *MCPServer) connectToUpstreamServers() error {
 
 		// Connect to upstream server with timeout protection
 		mcpClient := client.NewQuietMCPClient(upstream)
-		
+
 		// Use a timeout context for connection
 		connectCtx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
-		
+
 		connectErr := make(chan error, 1)
 		go func() {
 			connectErr <- mcpClient.Connect()
 		}()
-		
+
 		select {
 		case err := <-connectErr:
 			cancel()
@@ -387,7 +390,7 @@ func (s *MCPServer) connectToUpstreamServers() error {
 		}
 
 		if s.mcpLogger != nil {
-			s.mcpLogger.Info("mcp-local", fmt.Sprintf("Successfully connected to upstream server %s - tools: %d, resources: %d", 
+			s.mcpLogger.Info("mcp-local", fmt.Sprintf("Successfully connected to upstream server %s - tools: %d, resources: %d",
 				name, len(mcpClient.GetTools()), len(mcpClient.GetResources())))
 		}
 
@@ -521,7 +524,7 @@ func (s *MCPServer) fetchCuratedServers() error {
 
 	// Construct curation endpoint URL
 	curationURL := s.mcpConfig.CurationRegistry.URL + "/gateway/curated-servers"
-	
+
 	if s.mcpLogger != nil {
 		s.mcpLogger.Info("mcp-local", fmt.Sprintf("Fetching curated servers from: %s", curationURL))
 	}
@@ -583,11 +586,11 @@ func (s *MCPServer) isServerCurated(serverConfig *types.UpstreamServer) bool {
 	// Check if this server matches any curated server
 	for _, curated := range s.curatedServers {
 		if serverConfig.Type == "stdio" && curated.Type == "stdio" {
-			if strings.HasPrefix(strings.Join(serverConfig.Command, " "), curated.Command)  {
+			if strings.HasPrefix(strings.Join(serverConfig.Command, " "), curated.Command) {
 				return true
 			}
-		} else if (serverConfig.Type == "http" || serverConfig.Type == "websocket") && 
-		   (curated.Type == "http" || curated.Type == "websocket") {
+		} else if (serverConfig.Type == "http" || serverConfig.Type == "websocket") &&
+			(curated.Type == "http" || curated.Type == "websocket") {
 			if serverConfig.URL == curated.URL {
 				return true
 			}
@@ -636,7 +639,7 @@ func (s *MCPServer) sendNotification(method string, params interface{}) {
 		Method:  method,
 		Params:  params,
 	}
-	
+
 	select {
 	case s.notificationChan <- notification:
 		if s.mcpLogger != nil {
@@ -654,7 +657,7 @@ func (s *MCPServer) notifyToolsChanged() {
 	s.sendNotification("notifications/tools/list_changed", map[string]interface{}{})
 }
 
-// notifyResourcesChanged sends a resources/list_changed notification  
+// notifyResourcesChanged sends a resources/list_changed notification
 func (s *MCPServer) notifyResourcesChanged() {
 	s.sendNotification("notifications/resources/list_changed", map[string]interface{}{})
 }

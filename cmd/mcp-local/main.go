@@ -74,7 +74,7 @@ func main() {
 				log.Error().Err(err).Msg("Failed to marshal notification")
 				continue
 			}
-			
+
 			log.Debug().Str("notification", string(notificationBytes)).Msg("Sending notification")
 			fmt.Println(string(notificationBytes))
 			os.Stdout.Sync()
@@ -120,7 +120,7 @@ func main() {
 			// Debug: Log outgoing response
 			log.Debug().Str("response", string(responseBytes)).Str("method", request.Method).Interface("id", request.ID).Msg("Sending response")
 			fmt.Println(string(responseBytes))
-			
+
 			// Ensure output is flushed immediately
 			os.Stdout.Sync()
 		} else {

@@ -1,5 +1,7 @@
 /.vscode
 *.exe
+mcp-gateway
+mcp-local
 *.db
 mcp.json
 logs/*
