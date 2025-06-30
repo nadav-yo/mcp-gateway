@@ -12,6 +12,10 @@ class ServersTab {
         this.lastServersData = null;
         this.currentEditingId = null;
         this.isRefreshing = false;
+        this.allServers = []; // Store all servers for search filtering
+        this.filteredServers = []; // Store filtered servers
+        this.searchTerm = '';
+        this.connectedOnlyMode = false; // Track connected-only filter state
     }
 
     async initialize() {
@@ -83,15 +87,6 @@ class ServersTab {
         await this.adminPanel.logsTab.viewServerLogs(serverId, serverName);
     }
 
-    toggleToolsVisibility(serverIndex) {
-        const content = document.getElementById(`tools-content-${serverIndex}`);
-        const toggle = document.getElementById(`tools-toggle-${serverIndex}`);
-        
-        content.classList.toggle('expanded');
-        toggle.textContent = content.classList.contains('expanded') ? '▼' : '▶';
-        toggle.classList.toggle('expanded');
-    }
-
     // Data Management
     async refreshData() {
         this.adminPanel.clearDataCache();
@@ -143,9 +138,11 @@ class ServersTab {
             
             const servers = this.mergeServersWithTools(serversResult.data, statusResult);
             
+            // Store all servers and apply current filters
+            this.allServers = servers;
+            this.applyFilters();
+            
             if (this.shouldUpdateDOM(servers)) {
-                this.renderServers(servers);
-                this.updateServerCount(serversResult.data.count || 0);
                 this.adminPanel.updateLastRefreshTime();
             }
         } catch (error) {
@@ -157,6 +154,39 @@ class ServersTab {
             this.adminPanel.autoRefreshEnabled = wasAutoRefreshEnabled;
             this.isRefreshing = false;
         }
+    }    // Search functionality
+    filterServers() {
+        const searchInput = document.getElementById('serverSearch');
+        const clearBtn = document.getElementById('clearSearchBtn');
+        
+        if (!searchInput) return;
+        
+        this.searchTerm = searchInput.value.toLowerCase().trim();
+        
+        // Show/hide clear button
+        if (this.searchTerm) {
+            clearBtn.style.display = 'block';
+        } else {
+            clearBtn.style.display = 'none';
+        }
+        
+        // Apply all filters
+        this.applyFilters();
+    }
+
+    clearSearch() {
+        const searchInput = document.getElementById('serverSearch');
+        const clearBtn = document.getElementById('clearSearchBtn');
+        
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        
+        this.searchTerm = '';
+        clearBtn.style.display = 'none';
+        
+        // Apply all filters
+        this.applyFilters();
     }
 
     // Helper Methods
@@ -165,9 +195,19 @@ class ServersTab {
         const upstreamServers = statusData.gateway?.upstream_servers || [];
         
         const toolsMap = {};
+        const promptsMap = {};
+        const resourcesMap = {};
         upstreamServers.forEach(upstream => {
             toolsMap[upstream.name] = {
                 tool_details: upstream.tool_details || [],
+                connected: upstream.connected
+            };
+            promptsMap[upstream.name] = {
+                prompt_details: upstream.prompt_details || [],
+                connected: upstream.connected
+            };
+            resourcesMap[upstream.name] = {
+                resource_details: upstream.resource_details || [],
                 connected: upstream.connected
             };
         });
@@ -175,6 +215,8 @@ class ServersTab {
         return servers.map(server => ({
             ...server,
             tool_details: toolsMap[server.name]?.tool_details || [],
+            prompt_details: promptsMap[server.name]?.prompt_details || [],
+            resource_details: resourcesMap[server.name]?.resource_details || [],
             runtime_connected: toolsMap[server.name]?.connected || false
         }));
     }
@@ -182,7 +224,10 @@ class ServersTab {
     shouldUpdateDOM(servers) {
         const serversKey = JSON.stringify(servers.map(s => ({
             id: s.id, name: s.name, status: s.status, enabled: s.enabled,
-            runtime_connected: s.runtime_connected, tool_details_count: s.tool_details?.length || 0
+            runtime_connected: s.runtime_connected, 
+            tool_details_count: s.tool_details?.length || 0,
+            prompt_details_count: s.prompt_details?.length || 0,
+            resource_details_count: s.resource_details?.length || 0
         })));
         
         if (this.lastServersData !== serversKey) {
@@ -226,7 +271,12 @@ class ServersTab {
         const serversList = document.getElementById('serversList');
         
         if (servers.length === 0) {
-            serversList.innerHTML = '<div class="loading">No servers configured</div>';
+            // Check if we're showing filtered results or all results
+            if (this.searchTerm && this.allServers.length > 0) {
+                serversList.innerHTML = `<div class="loading">No servers found matching "${this.searchTerm}"</div>`;
+            } else {
+                serversList.innerHTML = '<div class="loading">No servers configured</div>';
+            }
             return;
         }
         
@@ -265,14 +315,38 @@ class ServersTab {
                         <button class="btn btn-sm btn-danger" onclick="serversTab.deleteServer(${server.id})">Delete</button>
                     </div>
                 </div>
-                <div class="server-tools">
-                    <div class="tools-header" onclick="serversTab.toggleToolsVisibility(${index})">
-                        <span class="tools-toggle" id="tools-toggle-${index}">▶</span>
-                        Available Tools
-                        <span class="tools-count">${server.tool_details?.length || 0}</span>
+                <div class="server-capabilities">
+                    <div class="capability-section">
+                        <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${index}, 'tools')">
+                            <span class="capability-toggle" id="tools-toggle-${index}">▶</span>
+                            Available Tools
+                            <span class="capability-count">${server.tool_details?.length || 0}</span>
+                        </div>
+                        <div class="capability-content" id="tools-content-${index}">
+                            ${this.renderTools(server.tool_details || [])}
+                        </div>
                     </div>
-                    <div class="tools-content" id="tools-content-${index}">
-                        ${this.renderTools(server.tool_details || [])}
+                    
+                    <div class="capability-section">
+                        <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${index}, 'prompts')">
+                            <span class="capability-toggle" id="prompts-toggle-${index}">▶</span>
+                            Available Prompts
+                            <span class="capability-count">${server.prompt_details?.length || 0}</span>
+                        </div>
+                        <div class="capability-content" id="prompts-content-${index}">
+                            ${this.renderPrompts(server.prompt_details || [])}
+                        </div>
+                    </div>
+                    
+                    <div class="capability-section">
+                        <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${index}, 'resources')">
+                            <span class="capability-toggle" id="resources-toggle-${index}">▶</span>
+                            Available Resources
+                            <span class="capability-count">${server.resource_details?.length || 0}</span>
+                        </div>
+                        <div class="capability-content" id="resources-content-${index}">
+                            ${this.renderResources(server.resource_details || [])}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -307,6 +381,57 @@ class ServersTab {
                 <tbody>${toolRows}</tbody>
             </table>
         `;
+    }
+
+    renderPrompts(promptDetails) {
+        if (promptDetails.length === 0) {
+            return '<div class="no-prompts">No prompts available</div>';
+        }
+        
+        const promptRows = promptDetails.map(prompt => `
+            <tr>
+                <td class="prompt-name">${this.adminPanel.escapeHtml(prompt.name)}</td>
+                <td class="prompt-description">${this.adminPanel.escapeHtml(prompt.description || 'No description available')}</td>
+            </tr>
+        `).join('');
+        
+        return `
+            <table class="prompts-table">
+                <thead><tr><th>Prompt Name</th><th>Description</th></tr></thead>
+                <tbody>${promptRows}</tbody>
+            </table>
+        `;
+    }
+
+    renderResources(resourceDetails) {
+        if (resourceDetails.length === 0) {
+            return '<div class="no-resources">No resources available</div>';
+        }
+        
+        const resourceRows = resourceDetails.map(resource => `
+            <tr>
+                <td class="resource-name">${this.adminPanel.escapeHtml(resource.name)}</td>
+                <td class="resource-description">${this.adminPanel.escapeHtml(resource.description || 'No description available')}</td>
+                <td class="resource-uri">${this.adminPanel.escapeHtml(resource.uri || 'No URI available')}</td>
+            </tr>
+        `).join('');
+        
+        return `
+            <table class="resources-table">
+                <thead><tr><th>Resource Name</th><th>Description</th><th>URI</th></tr></thead>
+                <tbody>${resourceRows}</tbody>
+            </table>
+        `;
+    }
+
+    // Capability visibility toggle
+    toggleCapabilityVisibility(serverIndex, capability) {
+        const content = document.getElementById(`${capability}-content-${serverIndex}`);
+        const toggle = document.getElementById(`${capability}-toggle-${serverIndex}`);
+        
+        content.classList.toggle('expanded');
+        toggle.textContent = content.classList.contains('expanded') ? '▼' : '▶';
+        toggle.classList.toggle('expanded');
     }
     // Form and Modal Handling
     showModal(title) {
@@ -524,5 +649,64 @@ class ServersTab {
         if (AUTH_TYPES[authType]) {
             document.getElementById(AUTH_TYPES[authType].fields).classList.add('active');
         }
+    }
+
+    // Connected-only toggle functionality
+    toggleConnectedOnly() {
+        this.connectedOnlyMode = !this.connectedOnlyMode;
+        
+        // Update toggle visual state
+        const toggle = document.getElementById('connectedOnlyToggle');
+        if (toggle) {
+            if (this.connectedOnlyMode) {
+                toggle.classList.add('active');
+            } else {
+                toggle.classList.remove('active');
+            }
+        }
+        
+        // Apply filters and re-render
+        this.applyFilters();
+    }
+
+    applyFilters() {
+        let servers = [...this.allServers];
+        
+        // Apply connected-only filter first
+        if (this.connectedOnlyMode) {
+            servers = servers.filter(server => 
+                server.enabled && (server.runtime_connected || server.status === 'connected')
+            );
+        }
+        
+        // Apply search filter
+        if (this.searchTerm) {
+            servers = servers.filter(server => 
+                server.name.toLowerCase().includes(this.searchTerm)
+            );
+        }
+        
+        this.filteredServers = servers;
+        this.renderServers(this.filteredServers);
+        this.updateServerCountWithFilters();
+    }
+
+    updateServerCountWithFilters() {
+        const totalCount = this.allServers.length;
+        const filteredCount = this.filteredServers.length;
+        
+        let countText = '';
+        
+        if (this.connectedOnlyMode && this.searchTerm) {
+            countText = `${filteredCount}/${totalCount} servers`;
+        } else if (this.connectedOnlyMode) {
+            countText = `${filteredCount}/${totalCount} servers`;
+        } else if (this.searchTerm) {
+            countText = `${filteredCount}/${totalCount} servers`;
+        } else {
+            countText = `${totalCount} servers`;
+        }
+        
+        document.getElementById('serverCount').textContent = countText;
     }
 }

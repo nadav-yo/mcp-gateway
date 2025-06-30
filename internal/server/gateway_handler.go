@@ -18,11 +18,11 @@ import (
 // handleGatewayStatus handles gateway status requests
 func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	s.mu.RLock()
 	status := make(map[string]interface{})
 	upstreams := make([]map[string]interface{}, 0)
-	
+
 	for name, mcpClient := range s.clients {
 		tools := mcpClient.GetTools()
 		toolDetails := make([]map[string]interface{}, 0, len(tools))
@@ -32,14 +32,35 @@ func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 				"description": tool.Description,
 			})
 		}
-		
+
+		prompts := mcpClient.GetPrompts()
+		promptDetails := make([]map[string]interface{}, 0, len(prompts))
+		for promptName, prompt := range prompts {
+			promptDetails = append(promptDetails, map[string]interface{}{
+				"name":        promptName,
+				"description": prompt.Description,
+			})
+		}
+
+		resources := mcpClient.GetResources()
+		resourceDetails := make([]map[string]interface{}, 0, len(resources))
+		for resourceName, resource := range resources {
+			resourceDetails = append(resourceDetails, map[string]interface{}{
+				"name":        resourceName,
+				"description": resource.Description,
+				"uri":         resource.URI,
+			})
+		}
+
 		upstream := map[string]interface{}{
-			"name":         name,
-			"connected":    mcpClient.IsConnected(),
-			"tools":        len(tools),
-			"tool_details": toolDetails,
-			"resources":    len(mcpClient.GetResources()),
-			"prompts":      len(mcpClient.GetPrompts()),
+			"name":             name,
+			"connected":        mcpClient.IsConnected(),
+			"tools":            len(tools),
+			"tool_details":     toolDetails,
+			"resources":        len(resources),
+			"resource_details": resourceDetails,
+			"prompts":          len(prompts),
+			"prompt_details":   promptDetails,
 		}
 		upstreams = append(upstreams, upstream)
 	}
@@ -51,6 +72,7 @@ func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 		"upstream_servers": upstreams,
 		"total_tools":      len(s.tools),
 		"total_resources":  len(s.resources),
+		"total_prompts":    len(s.prompts),
 	}
 
 	json.NewEncoder(w).Encode(status)
@@ -59,34 +81,34 @@ func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 // handleUpstreamServers handles upstream servers list requests
 func (s *Server) handleUpstreamServers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	servers, err := s.db.ListUpstreamServers(false)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load upstream servers: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
+
 	json.NewEncoder(w).Encode(servers)
 }
 
 // handleGatewayStats handles gateway statistics requests
 func (s *Server) handleGatewayStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	s.mu.RLock()
 	s.updateStats()
 	stats := s.stats
 	s.mu.RUnlock()
-	
+
 	json.NewEncoder(w).Encode(stats)
 }
 
 // handleRefreshConnections handles connection refresh requests
 func (s *Server) handleRefreshConnections(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	s.logger.Info().Msg("Refreshing upstream server connections...")
-	
+
 	// Close existing connections
 	s.mu.Lock()
 	for name, mcpClient := range s.clients {
@@ -97,7 +119,7 @@ func (s *Server) handleRefreshConnections(w http.ResponseWriter, r *http.Request
 				Msg("Error closing connection to upstream")
 		}
 	}
-	
+
 	// Clear existing clients and aggregated data
 	s.clients = make(map[string]*client.MCPClient)
 	s.clientsByID = make(map[int64]*client.MCPClient)
@@ -105,19 +127,19 @@ func (s *Server) handleRefreshConnections(w http.ResponseWriter, r *http.Request
 	s.resources = make(map[string]*types.Resource)
 	s.prompts = make(map[string]*types.Prompt)
 	s.mu.Unlock()
-	
+
 	// Re-initialize local tools/resources
 	s.initializeFromConfig()
-	
+
 	// Reconnect to upstream servers
 	s.connectToUpstreamServers()
-	
+
 	response := map[string]interface{}{
 		"success": true,
 		"message": "Connections refreshed successfully",
 		"stats":   s.stats,
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -125,20 +147,20 @@ func (s *Server) handleRefreshConnections(w http.ResponseWriter, r *http.Request
 func (s *Server) handleGenericLog(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	filename := vars["filename"]
-	
+
 	// Security: only allow specific log files
 	allowedLogs := map[string]bool{
 		"request.log": true,
 		"audit.log":   true,
 	}
-	
+
 	if !allowedLogs[filename] {
 		http.Error(w, "Log file not found", http.StatusNotFound)
 		return
 	}
-	
+
 	logPath := filepath.Join("logs", filename)
-	
+
 	// Check if download is requested
 	if r.URL.Query().Get("download") == "true" {
 		// Serve file for download
@@ -147,7 +169,7 @@ func (s *Server) handleGenericLog(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, logPath)
 		return
 	}
-	
+
 	// Read log content
 	content, err := os.ReadFile(logPath)
 	if err != nil {
@@ -166,9 +188,9 @@ func (s *Server) handleGenericLog(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read log file", http.StatusInternalServerError)
 		return
 	}
-	
+
 	contentStr := string(content)
-	
+
 	// Handle tail option
 	if r.URL.Query().Get("tail") == "true" {
 		lines := strings.Split(contentStr, "\n")
@@ -178,13 +200,13 @@ func (s *Server) handleGenericLog(w http.ResponseWriter, r *http.Request) {
 				lineCount = parsed
 			}
 		}
-		
+
 		if len(lines) > lineCount {
 			lines = lines[len(lines)-lineCount:]
 		}
 		contentStr = strings.Join(lines, "\n")
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -199,8 +221,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "healthy",
-		"name":   s.config.MCP.Name,
+		"status":  "healthy",
+		"name":    s.config.MCP.Name,
 		"version": s.config.MCP.Version,
 	})
 }
@@ -209,12 +231,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	info := map[string]interface{}{
-		"name":        s.config.MCP.Name,
-		"description": s.config.MCP.Description,
-		"version":     s.config.MCP.Version,
+		"name":         s.config.MCP.Name,
+		"description":  s.config.MCP.Description,
+		"version":      s.config.MCP.Version,
 		"capabilities": s.config.MCP.Capabilities,
-		"tools":       len(s.tools),
-		"resources":   len(s.resources),
+		"tools":        len(s.tools),
+		"resources":    len(s.resources),
 	}
 	json.NewEncoder(w).Encode(info)
 }
@@ -222,7 +244,7 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 // handleCuratedServers handles requests for curated MCP servers list
 func (s *Server) handleCuratedServers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Get curated servers from database
 	curatedServers, err := s.db.ListCuratedServers()
 	if err != nil {
@@ -230,7 +252,7 @@ func (s *Server) handleCuratedServers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to load curated servers: %v", err), http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Convert to API format (maintaining backward compatibility)
 	apiServers := make([]map[string]interface{}, len(curatedServers))
 	for i, server := range curatedServers {
@@ -240,7 +262,7 @@ func (s *Server) handleCuratedServers(w http.ResponseWriter, r *http.Request) {
 			"type":        server.Type,
 			"description": server.Description,
 		}
-		
+
 		// Add type-specific fields
 		if server.Type == "stdio" {
 			apiServer["command"] = server.Command
@@ -250,21 +272,21 @@ func (s *Server) handleCuratedServers(w http.ResponseWriter, r *http.Request) {
 		} else {
 			apiServer["url"] = server.URL
 		}
-		
+
 		apiServers[i] = apiServer
 	}
-	
+
 	response := map[string]interface{}{
 		"servers":    apiServers,
 		"total":      len(apiServers),
 		"updated_at": time.Now().Format(time.RFC3339),
 		"version":    "2.0", // Increment version to indicate it's now database-backed
 	}
-	
+
 	s.logger.Info().
 		Int("server_count", len(apiServers)).
 		Str("remote_addr", r.RemoteAddr).
 		Msg("Served curated servers list from database")
-	
+
 	json.NewEncoder(w).Encode(response)
 }

@@ -34,16 +34,16 @@ type MCPError struct {
 
 // InitializeRequest represents the initialize request
 type InitializeRequest struct {
-	ProtocolVersion string              `json:"protocolVersion"`
-	Capabilities    ClientCapabilities  `json:"capabilities"`
-	ClientInfo      ClientInfo          `json:"clientInfo"`
+	ProtocolVersion string             `json:"protocolVersion"`
+	Capabilities    ClientCapabilities `json:"capabilities"`
+	ClientInfo      ClientInfo         `json:"clientInfo"`
 }
 
 // InitializeResponse represents the initialize response
 type InitializeResponse struct {
-	ProtocolVersion string              `json:"protocolVersion"`
-	Capabilities    ServerCapabilities  `json:"capabilities"`
-	ServerInfo      ServerInfo          `json:"serverInfo"`
+	ProtocolVersion string             `json:"protocolVersion"`
+	Capabilities    ServerCapabilities `json:"capabilities"`
+	ServerInfo      ServerInfo         `json:"serverInfo"`
 }
 
 // ClientCapabilities represents client capabilities
@@ -201,25 +201,25 @@ type Notification struct {
 
 // UpstreamServer represents configuration for an upstream MCP server
 type UpstreamServer struct {
-	Name        string            `json:"name"`
-	URL         string            `json:"url"`                     // For websocket/http servers
-	Command     []string          `json:"command,omitempty"`       // For stdio servers (e.g., ["npx", "name", "--variables"])
-	Type        string            `json:"type"`                    // "websocket", "http", "stdio"
-	Headers     map[string]string `json:"headers,omitempty"`
-	Timeout     string            `json:"timeout,omitempty"`
-	Enabled     bool              `json:"enabled"`
-	Prefix      string            `json:"prefix,omitempty"` // Prefix for tools/resources from this server
-	Auth        *AuthConfig       `json:"auth,omitempty"`   // Authentication configuration
+	Name    string            `json:"name"`
+	URL     string            `json:"url"`               // For websocket/http servers
+	Command []string          `json:"command,omitempty"` // For stdio servers (e.g., ["npx", "name", "--variables"])
+	Type    string            `json:"type"`              // "websocket", "http", "stdio"
+	Headers map[string]string `json:"headers,omitempty"`
+	Timeout string            `json:"timeout,omitempty"`
+	Enabled bool              `json:"enabled"`
+	Prefix  string            `json:"prefix,omitempty"` // Prefix for tools/resources from this server
+	Auth    *AuthConfig       `json:"auth,omitempty"`   // Authentication configuration
 }
 
 // AuthConfig represents authentication configuration for upstream servers
 type AuthConfig struct {
-	Type         string `json:"type"`                    // "bearer", "basic", "api-key"
-	BearerToken  string `json:"bearer_token,omitempty"`  // Bearer token (will be encrypted in storage)
-	Username     string `json:"username,omitempty"`      // For basic auth
-	Password     string `json:"password,omitempty"`      // For basic auth (will be encrypted in storage)
-	APIKey       string `json:"api_key,omitempty"`       // API key (will be encrypted in storage)
-	HeaderName   string `json:"header_name,omitempty"`   // Custom header name for API key
+	Type        string `json:"type"`                   // "bearer", "basic", "api-key"
+	BearerToken string `json:"bearer_token,omitempty"` // Bearer token (will be encrypted in storage)
+	Username    string `json:"username,omitempty"`     // For basic auth
+	Password    string `json:"password,omitempty"`     // For basic auth (will be encrypted in storage)
+	APIKey      string `json:"api_key,omitempty"`      // API key (will be encrypted in storage)
+	HeaderName  string `json:"header_name,omitempty"`  // Custom header name for API key
 }
 
 // ClientConnection represents a connection to an upstream MCP server
@@ -239,14 +239,15 @@ type GatewayStats struct {
 	ConnectedServers  int `json:"connected_servers"`
 	TotalTools        int `json:"total_tools"`
 	TotalResources    int `json:"total_resources"`
+	TotalPrompts      int `json:"total_prompts"`
 	RequestsProcessed int `json:"requests_processed"`
 
 	// Additional statistics
-	ActiveTokens      int            `json:"active_tokens"`
-	TotalUsers        int            `json:"total_users"`
-	ServersByStatus   map[string]int `json:"servers_by_status"`
-	ServersByType     map[string]int `json:"servers_by_type"`
-	AuthMethodsCount  map[string]int `json:"auth_methods_count"`
-	SystemUptime      string         `json:"system_uptime"`
-	LastDatabaseUpdate string        `json:"last_database_update"`
+	ActiveTokens       int            `json:"active_tokens"`
+	TotalUsers         int            `json:"total_users"`
+	ServersByStatus    map[string]int `json:"servers_by_status"`
+	ServersByType      map[string]int `json:"servers_by_type"`
+	AuthMethodsCount   map[string]int `json:"auth_methods_count"`
+	SystemUptime       string         `json:"system_uptime"`
+	LastDatabaseUpdate string         `json:"last_database_update"`
 }

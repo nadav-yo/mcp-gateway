@@ -18,6 +18,7 @@ class StatisticsTab {
                 upstream_servers: stats.upstream_servers || 0,
                 connected_servers: stats.connected_servers || 0,
                 total_tools: stats.total_tools || 0,
+                total_prompts: stats.total_prompts || 0,
                 total_resources: stats.total_resources || 0
             });
             
@@ -26,6 +27,7 @@ class StatisticsTab {
                 document.getElementById('totalServers').textContent = stats.upstream_servers || 0;
                 document.getElementById('connectedServers').textContent = stats.connected_servers || 0;
                 document.getElementById('totalTools').textContent = stats.total_tools || 0;
+                document.getElementById('totalPrompts').textContent = stats.total_prompts || 0;
                 document.getElementById('totalResources').textContent = stats.total_resources || 0;
                 
                 this.lastStatsData = statsKey;
@@ -51,6 +53,7 @@ class StatisticsTab {
                 upstream_servers: stats.upstream_servers || 0,
                 connected_servers: stats.connected_servers || 0,
                 total_tools: stats.total_tools || 0,
+                total_prompts: stats.total_prompts || 0,
                 total_resources: stats.total_resources || 0,
                 requests_processed: stats.requests_processed || 0,
                 active_tokens: stats.active_tokens || 0,
@@ -69,6 +72,7 @@ class StatisticsTab {
                 document.getElementById('totalServersStats').textContent = stats.upstream_servers || 0;
                 document.getElementById('connectedServersStats').textContent = stats.connected_servers || 0;
                 document.getElementById('totalToolsStats').textContent = stats.total_tools || 0;
+                document.getElementById('totalPromptsStats').textContent = stats.total_prompts || 0;
                 document.getElementById('totalResourcesStats').textContent = stats.total_resources || 0;
                 document.getElementById('requestsProcessedStats').textContent = stats.requests_processed || 0;
                 

@@ -39,8 +39,9 @@ func (s *Server) updateStats() {
 		ConnectedServers:  connectedServers,
 		TotalTools:        len(s.tools),
 		TotalResources:    len(s.resources),
+		TotalPrompts:      len(s.prompts),
 		RequestsProcessed: s.stats.RequestsProcessed, // Keep the existing count
-		
+
 		// Additional statistics
 		ActiveTokens:       getIntFromStats(dbStats, "active_tokens"),
 		TotalUsers:         getIntFromStats(dbStats, "total_users"),

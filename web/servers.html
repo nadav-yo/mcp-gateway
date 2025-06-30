@@ -15,6 +15,10 @@
             <div class="stat-label">Total Tools</div>
         </div>
         <div class="stat-card">
+            <div class="stat-number" id="totalPrompts">-</div>
+            <div class="stat-label">Total Prompts</div>
+        </div>
+        <div class="stat-card">
             <div class="stat-number" id="totalResources">-</div>
             <div class="stat-label">Total Resources</div>
         </div>
@@ -36,7 +40,26 @@
     <div class="servers-section">
         <div class="servers-header">
             <h2>Upstream Servers</h2>
-            <span id="serverCount">0 servers</span>
+            <div class="search-container">
+                <input type="text" 
+                       id="serverSearch" 
+                       class="search-input" 
+                       placeholder="Search servers by name..." 
+                       oninput="serversTab.filterServers()">
+                <button class="search-clear-btn" 
+                        id="clearSearchBtn" 
+                        onclick="serversTab.clearSearch()" 
+                        style="display: none;">×</button>
+            </div>
+            <div class="header-controls">
+                <div class="connected-only-toggle">
+                    <div class="toggle-switch" id="connectedOnlyToggle" onclick="serversTab.toggleConnectedOnly()">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">Connected only</span>
+                </div>
+                <span id="serverCount">0 servers</span>
+            </div>
         </div>
         <div class="servers-list" id="serversList">
             <div class="loading">Loading servers...</div>
