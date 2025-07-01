@@ -21,8 +21,14 @@ func main() {
 	var mcpConfigPath string
 	var debug bool
 
+	// Set default mcp config path from environment variable or fallback to "mcp.json"
+	defaultMCPConfigPath := os.Getenv("MCP_CONFIG_PATH")
+	if defaultMCPConfigPath == "" {
+		defaultMCPConfigPath = "mcp.json"
+	}
+
 	flag.StringVar(&gatewayURL, "gateway", "", "URL of the MCP gateway to connect to for approved server list")
-	flag.StringVar(&mcpConfigPath, "mcp-config", "mcp.json", "Path to mcp.json file with upstream servers")
+	flag.StringVar(&mcpConfigPath, "mcp-config", defaultMCPConfigPath, "Path to mcp.json file with upstream servers")
 	flag.BoolVar(&debug, "debug", false, "Enable debug logging")
 	flag.Parse()
 

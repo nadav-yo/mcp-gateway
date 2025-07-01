@@ -402,7 +402,10 @@ class ServersTab {
             return '<div class="no-tools">No tools available</div>';
         }
         
-        const toolRows = toolDetails.map(tool => {
+        // Sort tools alphabetically by name
+        const sortedTools = [...toolDetails].sort((a, b) => a.name.localeCompare(b.name));
+        
+        const toolRows = sortedTools.map(tool => {
             const isBlocked = tool.blocked || false;
             const toggleId = `tool-toggle-${serverId}-${tool.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
             
@@ -437,7 +440,10 @@ class ServersTab {
             return '<div class="no-prompts">No prompts available</div>';
         }
         
-        const promptRows = promptDetails.map(prompt => `
+        // Sort prompts alphabetically by name
+        const sortedPrompts = [...promptDetails].sort((a, b) => a.name.localeCompare(b.name));
+        
+        const promptRows = sortedPrompts.map(prompt => `
             <tr>
                 <td class="prompt-name">${this.adminPanel.escapeHtml(prompt.name)}</td>
                 <td class="prompt-description">${this.adminPanel.escapeHtml(prompt.description || 'No description available')}</td>
@@ -457,7 +463,10 @@ class ServersTab {
             return '<div class="no-resources">No resources available</div>';
         }
         
-        const resourceRows = resourceDetails.map(resource => `
+        // Sort resources alphabetically by name
+        const sortedResources = [...resourceDetails].sort((a, b) => a.name.localeCompare(b.name));
+        
+        const resourceRows = sortedResources.map(resource => `
             <tr>
                 <td class="resource-name">${this.adminPanel.escapeHtml(resource.name)}</td>
                 <td class="resource-description">${this.adminPanel.escapeHtml(resource.description || 'No description available')}</td>
@@ -508,9 +517,6 @@ class ServersTab {
                     labelElement.textContent = isEnabled ? 'Enabled' : 'Blocked';
                 }
             }
-            
-            // Show success message
-            this.showSuccessMessage(`Tool ${toolName} ${isEnabled ? 'enabled' : 'blocked'} successfully`);
             
         } catch (error) {
             console.error('Error toggling tool block:', error);

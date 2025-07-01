@@ -76,7 +76,7 @@ type Server struct {
 
 // Start initializes and starts the MCP gateway server
 func (s *Server) Start() error {
-	s.logger.Info().Msg("Starting MCP Gateway Server...")
+	s.logger.Info().Msg("Initializing MCP Gateway Server...")
 
 	// Connect to upstream servers at startup
 	s.connectToUpstreamServers()
@@ -416,25 +416,27 @@ func (s *Server) isUserAdmin(r *http.Request) bool {
 
 // isToolBlocked checks if a tool is blocked for any of the servers that provide it
 func (s *Server) isToolBlocked(toolName string) bool {
-	// Check which servers provide this tool and if any block it
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Find all servers that provide this tool
+	serversWithTool := make([]int64, 0)
 	for serverID, mcpClient := range s.clientsByID {
 		if mcpClient.IsConnected() {
 			clientTools := mcpClient.GetTools()
 			if _, hasTool := clientTools[toolName]; hasTool {
-				// Check if this tool is blocked for this server
-				blocked, err := s.db.IsToolBlocked(serverID, "servers", toolName)
-				if err != nil {
-					s.logger.Error().Err(err).Int64("server_id", serverID).Str("tool_name", toolName).Msg("Error checking if tool is blocked")
-					continue
-				}
-				if blocked {
-					return true
-				}
+				serversWithTool = append(serversWithTool, serverID)
 			}
+		}
+	}
+	s.mu.RUnlock()
+
+	// Check blocked status without holding the mutex
+	for _, serverID := range serversWithTool {
+		blocked, err := s.db.IsToolBlocked(serverID, "servers", toolName)
+		if err != nil {
+			s.logger.Error().Err(err).Int64("server_id", serverID).Str("tool_name", toolName).Msg("Error checking if tool is blocked")
+			continue
+		}
+		if blocked {
+			return true
 		}
 	}
 

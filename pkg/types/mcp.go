@@ -245,6 +245,7 @@ type GatewayStats struct {
 	// Additional statistics
 	ActiveTokens       int            `json:"active_tokens"`
 	TotalUsers         int            `json:"total_users"`
+	TotalBlockedTools  int            `json:"total_blocked_tools"`
 	ServersByStatus    map[string]int `json:"servers_by_status"`
 	ServersByType      map[string]int `json:"servers_by_type"`
 	AuthMethodsCount   map[string]int `json:"auth_methods_count"`

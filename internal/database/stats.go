@@ -7,7 +7,7 @@ import (
 // GetStatistics returns comprehensive database statistics
 func (db *DB) GetStatistics() (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
-	
+
 	// Get active tokens count (excluding internal tokens)
 	var activeTokens int
 	err := db.conn.QueryRow("SELECT COUNT(*) FROM tokens WHERE is_active = true AND is_internal = false").Scan(&activeTokens)
@@ -15,7 +15,7 @@ func (db *DB) GetStatistics() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to get active tokens count: %w", err)
 	}
 	stats["active_tokens"] = activeTokens
-	
+
 	// Get total users count
 	var totalUsers int
 	err = db.conn.QueryRow("SELECT COUNT(*) FROM users WHERE is_active = true").Scan(&totalUsers)
@@ -23,7 +23,7 @@ func (db *DB) GetStatistics() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to get total users count: %w", err)
 	}
 	stats["total_users"] = totalUsers
-	
+
 	// Get servers by status
 	serversByStatus := make(map[string]int)
 	rows, err := db.conn.Query("SELECT status, COUNT(*) FROM upstream_servers GROUP BY status")
@@ -31,7 +31,7 @@ func (db *DB) GetStatistics() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to get servers by status: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var status string
 		var count int
@@ -41,7 +41,7 @@ func (db *DB) GetStatistics() (map[string]interface{}, error) {
 		serversByStatus[status] = count
 	}
 	stats["servers_by_status"] = serversByStatus
-	
+
 	// Get servers by type
 	serversByType := make(map[string]int)
 	rows, err = db.conn.Query("SELECT type, COUNT(*) FROM upstream_servers GROUP BY type")
@@ -49,7 +49,7 @@ func (db *DB) GetStatistics() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to get servers by type: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var serverType string
 		var count int
@@ -59,7 +59,7 @@ func (db *DB) GetStatistics() (map[string]interface{}, error) {
 		serversByType[serverType] = count
 	}
 	stats["servers_by_type"] = serversByType
-	
+
 	// Get auth methods count
 	authMethodsCount := make(map[string]int)
 	rows, err = db.conn.Query("SELECT CASE WHEN auth_type = '' THEN 'none' ELSE auth_type END as auth_method, COUNT(*) FROM upstream_servers GROUP BY auth_method")
@@ -67,7 +67,7 @@ func (db *DB) GetStatistics() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to get auth methods count: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var authMethod string
 		var count int
@@ -77,7 +77,15 @@ func (db *DB) GetStatistics() (map[string]interface{}, error) {
 		authMethodsCount[authMethod] = count
 	}
 	stats["auth_methods_count"] = authMethodsCount
-	
+
+	// Get blocked tools count
+	var totalBlockedTools int
+	err = db.conn.QueryRow("SELECT COUNT(*) FROM blocked_tools").Scan(&totalBlockedTools)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get blocked tools count: %w", err)
+	}
+	stats["total_blocked_tools"] = totalBlockedTools
+
 	// Get last database update timestamp
 	var lastUpdate string
 	err = db.conn.QueryRow("SELECT MAX(updated_at) FROM upstream_servers").Scan(&lastUpdate)
@@ -85,6 +93,6 @@ func (db *DB) GetStatistics() (map[string]interface{}, error) {
 		lastUpdate = "Never"
 	}
 	stats["last_database_update"] = lastUpdate
-	
+
 	return stats, nil
 }
