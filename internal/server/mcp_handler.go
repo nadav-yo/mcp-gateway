@@ -47,14 +47,14 @@ func (s *Server) handleInitialize(req *types.MCPRequest) *types.MCPResponse {
 
 	// Initialize local tools and resources from config
 	s.initializeFromConfig()
-	
+
 	// Connect to upstream servers and aggregate their capabilities
 	s.connectToUpstreamServers()
 
 	result := types.InitializeResponse{
 		ProtocolVersion: s.config.MCP.Version,
 		Capabilities: types.ServerCapabilities{
-			Tools:     &types.ToolCapability{ListChanged: s.config.MCP.Capabilities.Tools.ListChanged},
+			Tools: &types.ToolCapability{ListChanged: s.config.MCP.Capabilities.Tools.ListChanged},
 			Resources: &types.ResourceCapability{
 				Subscribe:   s.config.MCP.Capabilities.Resources.Subscribe,
 				ListChanged: s.config.MCP.Capabilities.Resources.ListChanged,
@@ -77,14 +77,22 @@ func (s *Server) handleInitialize(req *types.MCPRequest) *types.MCPResponse {
 // handleToolsList handles the tools/list request
 func (s *Server) handleToolsList(req *types.MCPRequest) *types.MCPResponse {
 	s.mu.RLock()
-	tools := make([]types.Tool, 0, len(s.tools))
+	allTools := make([]types.Tool, 0, len(s.tools))
 	for _, tool := range s.tools {
-		tools = append(tools, *tool)
+		allTools = append(allTools, *tool)
 	}
 	s.mu.RUnlock()
 
-	result := types.ToolListResponse{Tools: tools}
-	
+	// Filter out blocked tools
+	filteredTools := make([]types.Tool, 0, len(allTools))
+	for _, tool := range allTools {
+		if !s.isToolBlocked(tool.Name) {
+			filteredTools = append(filteredTools, tool)
+		}
+	}
+
+	result := types.ToolListResponse{Tools: filteredTools}
+
 	return &types.MCPResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
@@ -102,9 +110,8 @@ func (s *Server) handleToolsCall(req *types.MCPRequest) *types.MCPResponse {
 	s.mu.RLock()
 	toolName := strings.ReplaceAll(callReq.Name, ":", "_")
 	tool, exists := s.tools[toolName]
-
 	s.mu.RUnlock()
-	
+
 	if !exists {
 		s.logger.Warn().
 			Str("tool_name", callReq.Name).
@@ -113,9 +120,17 @@ func (s *Server) handleToolsCall(req *types.MCPRequest) *types.MCPResponse {
 		return s.errorResponse(req.ID, -32602, "Tool not found", fmt.Sprintf("Tool '%s' not found", callReq.Name))
 	}
 
+	// Check if the tool is blocked
+	if s.isToolBlocked(callReq.Name) {
+		s.logger.Warn().
+			Str("tool_name", callReq.Name).
+			Msg("Tool call blocked")
+		return s.errorResponse(req.ID, -32603, "Tool blocked", fmt.Sprintf("Tool '%s' is blocked by administrator", callReq.Name))
+	}
+
 	// Check if this is a local tool or needs to be routed to an upstream server
 	result := s.routeToolCall(tool, callReq.Name, callReq.Arguments)
-	
+
 	return &types.MCPResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
@@ -131,7 +146,7 @@ func (s *Server) handleResourcesList(req *types.MCPRequest) *types.MCPResponse {
 	}
 
 	result := types.ResourceListResponse{Resources: resources}
-	
+
 	return &types.MCPResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
@@ -150,16 +165,16 @@ func (s *Server) handleResourcesRead(req *types.MCPRequest) *types.MCPResponse {
 	// Check if resource exists
 	resource, exists := s.resources[readReq.URI]
 	s.mu.RUnlock()
-	
+
 	if !exists {
 		return s.errorResponse(req.ID, -32602, "Resource not found", fmt.Sprintf("Resource '%s' not found", readReq.URI))
 	}
 
 	// Route the resource read request
 	content := s.routeResourceRead(resource, readReq.URI)
-	
+
 	result := types.ReadResourceResponse{Contents: []types.ResourceContent{content}}
-	
+
 	return &types.MCPResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
@@ -177,7 +192,7 @@ func (s *Server) handleLoggingSetLevel(req *types.MCPRequest) *types.MCPResponse
 	// Set logging level (implement actual logging level change)
 	s.logger.Info().Str("level", levelReq.Level).Msg("Setting log level")
 	logger.SetLogLevel(levelReq.Level)
-	
+
 	return &types.MCPResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
@@ -249,7 +264,7 @@ func (s *Server) executeTool(tool *types.Tool, arguments map[string]interface{})
 func (s *Server) readResource(resource *types.Resource) types.ResourceContent {
 	// This is a placeholder implementation
 	// In a real implementation, you would read from actual resources
-	
+
 	return types.ResourceContent{
 		URI:      resource.URI,
 		MimeType: resource.MimeType,

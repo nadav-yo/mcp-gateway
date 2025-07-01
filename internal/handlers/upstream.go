@@ -71,14 +71,6 @@ type AuthConfigRequest struct {
 	HeaderName  string `json:"header_name,omitempty"`  // Custom header name for API key
 }
 
-// APIResponse represents a standard API response
-type APIResponse struct {
-	Success bool        `json:"success"`
-	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   string      `json:"error,omitempty"`
-}
-
 // ServerInterface defines the methods the upstream handler needs from the server
 type ServerInterface interface {
 	DisconnectUpstreamServer(serverID int64) error

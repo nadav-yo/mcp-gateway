@@ -24,12 +24,31 @@ func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 	upstreams := make([]map[string]interface{}, 0)
 
 	for name, mcpClient := range s.clients {
+		// Get the server ID for this client
+		var serverID int64
+		for id, client := range s.clientsByID {
+			if client == mcpClient {
+				serverID = id
+				break
+			}
+		}
+
+		// Get blocked tools for this server
+		blockedToolsSet := make(map[string]bool)
+		if serverID > 0 {
+			if blockedTools, err := s.db.GetBlockedToolsSet(serverID, "servers"); err == nil {
+				blockedToolsSet = blockedTools
+			}
+		}
+
 		tools := mcpClient.GetTools()
 		toolDetails := make([]map[string]interface{}, 0, len(tools))
 		for toolName, tool := range tools {
+			isBlocked := blockedToolsSet[toolName]
 			toolDetails = append(toolDetails, map[string]interface{}{
 				"name":        toolName,
 				"description": tool.Description,
+				"blocked":     isBlocked,
 			})
 		}
 

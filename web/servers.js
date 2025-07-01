@@ -244,7 +244,33 @@ class ServersTab {
 
     showError(message) {
         console.error(message);
-        document.getElementById('serversList').innerHTML = `<div class="error">${message}</div>`;
+        // Check if it's a general error or tool toggle error
+        const errorElement = document.getElementById('serversError');
+        if (errorElement) {
+            errorElement.textContent = message;
+            errorElement.classList.remove('hidden');
+            // Hide success message
+            const successElement = document.getElementById('serversSuccess');
+            if (successElement) successElement.classList.add('hidden');
+            // Auto-hide after 5 seconds
+            setTimeout(() => errorElement.classList.add('hidden'), 5000);
+        } else {
+            // Fallback to showing in servers list
+            document.getElementById('serversList').innerHTML = `<div class="error">${message}</div>`;
+        }
+    }
+
+    showSuccessMessage(message) {
+        const successElement = document.getElementById('serversSuccess');
+        if (successElement) {
+            successElement.textContent = message;
+            successElement.classList.remove('hidden');
+            // Hide error message
+            const errorElement = document.getElementById('serversError');
+            if (errorElement) errorElement.classList.add('hidden');
+            // Auto-hide after 3 seconds
+            setTimeout(() => successElement.classList.add('hidden'), 3000);
+        }
     }
 
     async fetchServer(id) {
@@ -325,18 +351,18 @@ class ServersTab {
                 </div>
                 <div class="server-capabilities">
                     <div class="capability-section">
-                        <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${index}, 'tools')">
+                        <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${server.id}, ${index}, 'tools')">
                             <span class="capability-toggle ${toolsExpanded ? 'expanded' : ''}" id="tools-toggle-${index}">${toolsExpanded ? '▼' : '▶'}</span>
                             Available Tools
                             <span class="capability-count">${server.tool_details?.length || 0}</span>
                         </div>
                         <div class="capability-content ${toolsExpanded ? 'expanded' : ''}" id="tools-content-${index}">
-                            ${this.renderTools(server.tool_details || [])}
+                            ${this.renderTools(server.tool_details || [], server.id, 'servers')}
                         </div>
                     </div>
                     
                     <div class="capability-section">
-                        <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${index}, 'prompts')">
+                        <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${server.id}, ${index}, 'prompts')">
                             <span class="capability-toggle ${promptsExpanded ? 'expanded' : ''}" id="prompts-toggle-${index}">${promptsExpanded ? '▼' : '▶'}</span>
                             Available Prompts
                             <span class="capability-count">${server.prompt_details?.length || 0}</span>
@@ -347,7 +373,7 @@ class ServersTab {
                     </div>
                     
                     <div class="capability-section">
-                        <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${index}, 'resources')">
+                        <div class="capability-header" onclick="serversTab.toggleCapabilityVisibility(${server.id}, ${index}, 'resources')">
                             <span class="capability-toggle ${resourcesExpanded ? 'expanded' : ''}" id="resources-toggle-${index}">${resourcesExpanded ? '▼' : '▶'}</span>
                             Available Resources
                             <span class="capability-count">${server.resource_details?.length || 0}</span>
@@ -371,21 +397,36 @@ class ServersTab {
         return `<span>${authMap[server.auth_type] || `Auth: ${this.adminPanel.escapeHtml(server.auth_type)}`}</span>`;
     }
 
-    renderTools(toolDetails) {
+    renderTools(toolDetails, serverId, serverType) {
         if (toolDetails.length === 0) {
             return '<div class="no-tools">No tools available</div>';
         }
         
-        const toolRows = toolDetails.map(tool => `
-            <tr>
-                <td class="tool-name">${this.adminPanel.escapeHtml(tool.name)}</td>
-                <td class="tool-description">${this.adminPanel.escapeHtml(tool.description || 'No description available')}</td>
-            </tr>
-        `).join('');
+        const toolRows = toolDetails.map(tool => {
+            const isBlocked = tool.blocked || false;
+            const toggleId = `tool-toggle-${serverId}-${tool.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            
+            return `
+                <tr>
+                    <td class="tool-name">${this.adminPanel.escapeHtml(tool.name)}</td>
+                    <td class="tool-description">${this.adminPanel.escapeHtml(tool.description || 'No description available')}</td>
+                    <td class="tool-toggle-cell">
+                        <label class="tool-toggle-switch">
+                            <input type="checkbox" 
+                                   id="${toggleId}" 
+                                   ${!isBlocked ? 'checked' : ''} 
+                                   onchange="serversTab.toggleToolBlock(${serverId}, '${serverType}', '${this.adminPanel.escapeHtml(tool.name)}', this.checked)">
+                            <span class="tool-toggle-slider"></span>
+                        </label>
+                        <span class="tool-toggle-label">${isBlocked ? 'Blocked' : 'Enabled'}</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
         
         return `
             <table class="tools-table">
-                <thead><tr><th>Tool Name</th><th>Description</th></tr></thead>
+                <thead><tr><th>Tool Name</th><th>Description</th><th>Status</th></tr></thead>
                 <tbody>${toolRows}</tbody>
             </table>
         `;
@@ -433,7 +474,7 @@ class ServersTab {
     }
 
     // Capability visibility toggle
-    toggleCapabilityVisibility(serverIndex, capability) {
+    toggleCapabilityVisibility(serverId, serverIndex, capability) {
         const content = document.getElementById(`${capability}-content-${serverIndex}`);
         const toggle = document.getElementById(`${capability}-toggle-${serverIndex}`);
         
@@ -441,13 +482,50 @@ class ServersTab {
         toggle.textContent = content.classList.contains('expanded') ? '▼' : '▶';
         toggle.classList.toggle('expanded');
         
-        // Save the expanded state
-        const server = this.filteredServers[serverIndex];
-        if (server) {
-            const key = `${server.id}-${capability}`;
-            this.expandedStates.set(key, content.classList.contains('expanded'));
+        // Save the expanded state using server ID (not index)
+        const key = `${serverId}-${capability}`;
+        this.expandedStates.set(key, content.classList.contains('expanded'));
+    }
+
+    // Tool blocking/unblocking functionality
+    async toggleToolBlock(serverId, serverType, toolName, isEnabled) {
+        try {
+            const toggleData = {
+                server_id: serverId,
+                type: serverType,
+                tool_name: toolName,
+                block: !isEnabled // if enabled=true, we want to unblock (block=false)
+            };
+
+            const response = await this.makeRequest('/api/blocked-tools/toggle', 'POST', toggleData);
+            
+            // Update the toggle label
+            const toggleId = `tool-toggle-${serverId}-${toolName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const toggleElement = document.getElementById(toggleId);
+            if (toggleElement) {
+                const labelElement = toggleElement.parentElement.nextElementSibling;
+                if (labelElement && labelElement.classList.contains('tool-toggle-label')) {
+                    labelElement.textContent = isEnabled ? 'Enabled' : 'Blocked';
+                }
+            }
+            
+            // Show success message
+            this.showSuccessMessage(`Tool ${toolName} ${isEnabled ? 'enabled' : 'blocked'} successfully`);
+            
+        } catch (error) {
+            console.error('Error toggling tool block:', error);
+            
+            // Revert the toggle state on error
+            const toggleId = `tool-toggle-${serverId}-${toolName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const toggleElement = document.getElementById(toggleId);
+            if (toggleElement) {
+                toggleElement.checked = !isEnabled;
+            }
+            
+            this.showError('Failed to toggle tool: ' + error.message);
         }
     }
+
     // Form and Modal Handling
     showModal(title) {
         document.getElementById('modalTitle').textContent = title;

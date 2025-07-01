@@ -21,15 +21,15 @@ type DB struct {
 func New(dbPath string) (*DB, error) {
 	// Configure SQLite connection string with optimized settings for concurrency
 	connStr := fmt.Sprintf("%s?_busy_timeout=30000&_journal_mode=WAL&_synchronous=NORMAL&_cache_size=2000&_foreign_keys=on&_temp_store=memory&_mmap_size=268435456", dbPath)
-	
+
 	conn, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	// Configure connection pool for better concurrency handling
-	conn.SetMaxOpenConns(10)   // Reduce concurrent connections to avoid locking
-	conn.SetMaxIdleConns(3)    // Keep fewer idle connections
+	conn.SetMaxOpenConns(10)                 // Reduce concurrent connections to avoid locking
+	conn.SetMaxIdleConns(3)                  // Keep fewer idle connections
 	conn.SetConnMaxLifetime(5 * time.Minute) // Rotate connections regularly
 
 	// Test the connection
@@ -130,6 +130,18 @@ func (db *DB) createTables() error {
 
 	CREATE INDEX IF NOT EXISTS idx_curated_servers_name ON curated_servers(name);
 	CREATE INDEX IF NOT EXISTS idx_curated_servers_type ON curated_servers(type);
+
+	CREATE TABLE IF NOT EXISTS blocked_tools (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		server_id INTEGER NOT NULL,
+		type TEXT NOT NULL CHECK(type IN ('servers', 'curated_servers')),
+		tool_name TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(server_id, type, tool_name)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_blocked_tools_server_id ON blocked_tools(server_id, type);
+	CREATE INDEX IF NOT EXISTS idx_blocked_tools_tool_name ON blocked_tools(tool_name);
 	`
 
 	_, err := db.conn.Exec(query)
@@ -154,12 +166,12 @@ func (db *DB) retryOnBusy(operation func() error, maxRetries int) error {
 		if err == nil {
 			return nil
 		}
-		
+
 		// Check if it's a SQLITE_BUSY error or database locked error
 		errStr := err.Error()
-		if strings.Contains(errStr, "SQLITE_BUSY") || 
-		   strings.Contains(errStr, "database is locked") ||
-		   strings.Contains(errStr, "locked") {
+		if strings.Contains(errStr, "SQLITE_BUSY") ||
+			strings.Contains(errStr, "database is locked") ||
+			strings.Contains(errStr, "locked") {
 			lastErr = err
 			// Exponential backoff with jitter
 			backoff := time.Duration(i+1) * 100 * time.Millisecond
@@ -167,11 +179,11 @@ func (db *DB) retryOnBusy(operation func() error, maxRetries int) error {
 				backoff = time.Duration(i-1) * 250 * time.Millisecond
 			}
 			// Add some randomness to prevent thundering herd
-			jitter := time.Duration(time.Now().UnixNano() % 50) * time.Millisecond
+			jitter := time.Duration(time.Now().UnixNano()%50) * time.Millisecond
 			time.Sleep(backoff + jitter)
 			continue
 		}
-		
+
 		// Not a busy error, return immediately
 		return err
 	}
@@ -193,12 +205,12 @@ func (db *DB) runMigrations() error {
 		var name, dataType string
 		var notNull, pk int
 		var defaultValue interface{}
-		
+
 		err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk)
 		if err != nil {
 			return fmt.Errorf("failed to scan column info: %w", err)
 		}
-		
+
 		if name == "is_admin" {
 			hasIsAdminColumn = true
 			break
@@ -211,7 +223,7 @@ func (db *DB) runMigrations() error {
 		if err != nil {
 			return fmt.Errorf("failed to add is_admin column: %w", err)
 		}
-		
+
 		// Make the first user (admin) an admin if exists
 		_, err = db.conn.Exec("UPDATE users SET is_admin = true WHERE username = 'admin'")
 		if err != nil {

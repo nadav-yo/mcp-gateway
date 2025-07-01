@@ -28,58 +28,59 @@ const (
 	UILoginPath          = "/ui/login"
 	UIUserPath           = "/ui/user"
 	UIChangePasswordPath = "/ui/change-password"
-	
+
 	// API paths
-	MCPPath         = "/mcp"
-	MCPHTTPPath     = "/mcp/http"
-	GatewayPath     = "/gateway"
-	StatusPath      = "/gateway/status"
-	UpstreamPath    = "/gateway/upstream"
-	StatsPath       = "/gateway/stats"
-	RefreshPath     = "/gateway/refresh"
-	CurationPath    = "/gateway/curated-servers"
-	HealthPath      = "/health"
-	InfoPath        = "/info"
-	LogsPath        = "/api/logs/{filename}"
-	
+	MCPPath      = "/mcp"
+	MCPHTTPPath  = "/mcp/http"
+	GatewayPath  = "/gateway"
+	StatusPath   = "/gateway/status"
+	UpstreamPath = "/gateway/upstream"
+	StatsPath    = "/gateway/stats"
+	RefreshPath  = "/gateway/refresh"
+	CurationPath = "/gateway/curated-servers"
+	HealthPath   = "/health"
+	InfoPath     = "/info"
+	LogsPath     = "/api/logs/{filename}"
+
 	// File paths
-	WebDir           = "web/"
-	LoginHTMLFile    = "web/login.html"
+	WebDir             = "web/"
+	LoginHTMLFile      = "web/login.html"
 	ChangePassHTMLFile = "web/change-password.html"
-	
+
 	// Token constants
-	TokenCookieName  = "mcp_token"
-	BearerPrefix     = "Bearer "
+	TokenCookieName = "mcp_token"
+	BearerPrefix    = "Bearer "
 )
 
 // Server represents the MCP gateway server
 type Server struct {
-	config         *config.Config
-	db             *database.DB
-	upgrader       websocket.Upgrader
-	tools          map[string]*types.Tool
-	resources      map[string]*types.Resource
-	clients        map[string]*client.MCPClient
-	prompts        map[string]*types.Prompt  // Store prompts from upstream servers (but don't expose locally)
-	clientsByID    map[int64]*client.MCPClient
-	mu             sync.RWMutex
-	stats          types.GatewayStats
-	upstreamHandler *handlers.UpstreamHandler
-	curatedHandler  *handlers.CuratedServerHandler
-	authHandler     *handlers.AuthHandler
-	logger         zerolog.Logger
-	ctx            context.Context
-	cancel         context.CancelFunc
-	startTime      time.Time
+	config              *config.Config
+	db                  *database.DB
+	upgrader            websocket.Upgrader
+	tools               map[string]*types.Tool
+	resources           map[string]*types.Resource
+	clients             map[string]*client.MCPClient
+	prompts             map[string]*types.Prompt // Store prompts from upstream servers (but don't expose locally)
+	clientsByID         map[int64]*client.MCPClient
+	mu                  sync.RWMutex
+	stats               types.GatewayStats
+	upstreamHandler     *handlers.UpstreamHandler
+	curatedHandler      *handlers.CuratedServerHandler
+	blockedToolsHandler *handlers.BlockedToolHandler
+	authHandler         *handlers.AuthHandler
+	logger              zerolog.Logger
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	startTime           time.Time
 }
 
 // Start initializes and starts the MCP gateway server
 func (s *Server) Start() error {
 	s.logger.Info().Msg("Starting MCP Gateway Server...")
-	
+
 	// Connect to upstream servers at startup
 	s.connectToUpstreamServers()
-	
+
 	s.logger.Info().Int("upstream_count", len(s.clients)).Msg("MCP Gateway Server started")
 	return nil
 }
@@ -87,13 +88,13 @@ func (s *Server) Start() error {
 // Shutdown gracefully shuts down the MCP gateway server
 func (s *Server) Shutdown() error {
 	s.logger.Info().Msg("Shutting down MCP Gateway Server...")
-	
+
 	// Cancel the server context to signal shutdown to all goroutines
 	s.cancel()
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Close all upstream connections
 	for name, mcpClient := range s.clients {
 		if err := mcpClient.Close(); err != nil {
@@ -103,15 +104,16 @@ func (s *Server) Shutdown() error {
 				Msg("Error closing connection to upstream")
 		}
 	}
-	
+
 	s.logger.Info().Msg("MCP Gateway Server shutdown complete")
 	return nil
 }
+
 // New creates a new MCP gateway server instance
 func New(cfg *config.Config, db *database.DB) *Server {
 	authHandler := handlers.NewAuthHandler(db)
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	server := &Server{
 		config: cfg,
 		db:     db,
@@ -132,24 +134,27 @@ func New(cfg *config.Config, db *database.DB) *Server {
 		cancel:      cancel,
 		startTime:   time.Now(),
 	}
-	
+
 	// Create upstream handler with server reference
 	server.upstreamHandler = handlers.NewUpstreamHandler(db, server)
-	
+
 	// Create curated server handler
 	server.curatedHandler = handlers.NewCuratedServerHandler(db)
-	
+
+	// Create blocked tools handler
+	server.blockedToolsHandler = handlers.NewBlockedToolHandler(db)
+
 	return server
 }
 
 // Router returns the HTTP router
 func (s *Server) Router() http.Handler {
 	r := mux.NewRouter()
-	
+
 	// Add request logging middleware to all routes
 	requestLogger := logger.NewRequestLoggerWithConfig(&s.config.Logging.Rotation)
 	r.Use(requestLogger.Middleware)
-	
+
 	// Register authentication routes first (includes public login endpoint)
 	s.authHandler.RegisterRoutes(r)
 
@@ -162,7 +167,7 @@ func (s *Server) Router() http.Handler {
 
 	// Register common routes
 	s.registerCommonRoutes(r)
-	
+
 	return r
 }
 
@@ -173,17 +178,17 @@ func (s *Server) setupAuthenticatedRoutes(r *mux.Router) {
 	mcpRouter.Use(s.authHandler.AuthMiddleware)
 	s.registerMCPRoutes(mcpRouter)
 	s.registerGeneralGatewayRoutes(mcpRouter)
-	
+
 	// Public curated servers endpoints (read-only, available to all authenticated users)
 	authenticatedRouter := r.NewRoute().Subrouter()
 	authenticatedRouter.Use(s.authHandler.AuthMiddleware)
 	s.curatedHandler.RegisterPublicRoutes(authenticatedRouter)
-	
+
 	// Admin-only endpoints
 	adminRouter := r.NewRoute().Subrouter()
 	adminRouter.Use(s.authHandler.AdminMiddleware)
 	s.registerAdminRoutes(adminRouter)
-	
+
 	// Register admin user management routes
 	s.authHandler.RegisterAdminRoutes(r)
 }
@@ -194,22 +199,25 @@ func (s *Server) setupUnauthenticatedRoutes(r *mux.Router) {
 	s.registerMCPRoutes(r)
 	s.registerGeneralGatewayRoutes(r)
 	s.registerAdminRoutes(r)
-	
+
 	// Register public curated servers routes (when auth is disabled, all routes are public)
 	s.curatedHandler.RegisterPublicRoutes(r)
-	
+
 	// Register admin user management routes (no auth when disabled)
 	s.authHandler.RegisterAdminRoutes(r)
+
+	// Register blocked tools routes (no auth when disabled)
+	s.blockedToolsHandler.RegisterAdminRoutes(r)
 }
 
 // registerMCPRoutes registers MCP communication endpoints
 func (s *Server) registerMCPRoutes(router *mux.Router) {
 	// SSE endpoint for MCP communication (VS Code uses this)
 	router.HandleFunc("/", s.handleSSE).Methods("GET", "POST")
-	
+
 	// WebSocket endpoint for MCP communication
 	router.HandleFunc(MCPPath, s.handleWebSocket)
-	
+
 	// HTTP endpoints for MCP over HTTP
 	router.HandleFunc(MCPHTTPPath, s.handleHTTP).Methods("POST")
 }
@@ -226,13 +234,14 @@ func (s *Server) registerAdminRoutes(router *mux.Router) {
 	// Admin gateway endpoints
 	router.HandleFunc(UpstreamPath, s.handleUpstreamServers).Methods("GET")
 	router.HandleFunc(RefreshPath, s.handleRefreshConnections).Methods("POST")
-	
+
 	// Log endpoints
 	router.HandleFunc(LogsPath, s.handleGenericLog).Methods("GET")
-	
+
 	// Register CRUD API routes
 	s.upstreamHandler.RegisterRoutes(router)
 	s.curatedHandler.RegisterAdminRoutes(router)
+	s.blockedToolsHandler.RegisterAdminRoutes(router)
 }
 
 // registerCommonRoutes registers routes available to all users
@@ -243,14 +252,14 @@ func (s *Server) registerCommonRoutes(r *mux.Router) {
 	r.HandleFunc(UIChangePasswordPath, s.handleChangePasswordPage).Methods("GET")
 	r.HandleFunc(UIAdminPath, s.handleAdminPage).Methods("GET")
 	r.HandleFunc(UIUserPath, s.handleUserPage).Methods("GET")
-	
+
 	// API health/info routes
 	r.HandleFunc(HealthPath, s.handleHealth).Methods("GET")
 	r.HandleFunc(InfoPath, s.handleInfo).Methods("GET")
-	
+
 	// Static file serving for CSS, JS, and HTML files
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(WebDir))))
-	
+
 	// Register public read-only curated server routes for all users
 	s.curatedHandler.RegisterPublicRoutes(r)
 }
@@ -327,7 +336,7 @@ func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, UILoginPath, http.StatusFound)
 			return
 		}
-		
+
 		// Check if user is admin
 		if !s.isUserAdmin(r) {
 			// Authenticated but not admin - redirect to user page
@@ -335,7 +344,7 @@ func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	// Serve admin panel with auth status injected
 	s.serveHTMLWithAuth(w, "web/admin.html")
 }
@@ -350,7 +359,7 @@ func (s *Server) handleUserPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	// Serve user page with auth status injected
 	s.serveHTMLWithAuth(w, "web/user.html")
 }
@@ -362,12 +371,12 @@ func (s *Server) extractToken(r *http.Request) string {
 	if authHeader != "" && strings.HasPrefix(authHeader, BearerPrefix) {
 		return strings.TrimPrefix(authHeader, BearerPrefix)
 	}
-	
+
 	// Try cookie
 	if cookie, err := r.Cookie(TokenCookieName); err == nil {
 		return cookie.Value
 	}
-	
+
 	return ""
 }
 
@@ -377,7 +386,7 @@ func (s *Server) isAuthenticated(r *http.Request) bool {
 	if token == "" {
 		return false
 	}
-	
+
 	// Validate token
 	_, err := s.db.ValidateToken(token)
 	return err == nil
@@ -389,20 +398,47 @@ func (s *Server) isUserAdmin(r *http.Request) bool {
 	if token == "" {
 		return false
 	}
-	
+
 	// Validate token and get token record
 	tokenRecord, err := s.db.ValidateToken(token)
 	if err != nil {
 		return false
 	}
-	
+
 	// Get user details to check admin status
 	user, err := s.db.GetUser(tokenRecord.UserID)
 	if err != nil {
 		return false
 	}
-	
+
 	return user.IsAdmin
+}
+
+// isToolBlocked checks if a tool is blocked for any of the servers that provide it
+func (s *Server) isToolBlocked(toolName string) bool {
+	// Check which servers provide this tool and if any block it
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Find all servers that provide this tool
+	for serverID, mcpClient := range s.clientsByID {
+		if mcpClient.IsConnected() {
+			clientTools := mcpClient.GetTools()
+			if _, hasTool := clientTools[toolName]; hasTool {
+				// Check if this tool is blocked for this server
+				blocked, err := s.db.IsToolBlocked(serverID, "servers", toolName)
+				if err != nil {
+					s.logger.Error().Err(err).Int64("server_id", serverID).Str("tool_name", toolName).Msg("Error checking if tool is blocked")
+					continue
+				}
+				if blocked {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // serveHTMLWithAuth serves an HTML file with auth status injected
@@ -413,18 +449,18 @@ func (s *Server) serveHTMLWithAuth(w http.ResponseWriter, filePath string) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Inject auth status
 	authEnabled := "false"
 	if s.config.Security.EnableAuth {
 		authEnabled = "true"
 	}
-	
+
 	htmlContent := string(content)
 	authScript := fmt.Sprintf(`    <script>window.AUTH_ENABLED = %s;</script>
 </head>`, authEnabled)
 	htmlContent = strings.Replace(htmlContent, "</head>", authScript, 1)
-	
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(htmlContent))
