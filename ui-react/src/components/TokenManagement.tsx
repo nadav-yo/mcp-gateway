@@ -21,7 +21,6 @@ import {
   Alert,
   CircularProgress,
   Chip,
-  Tooltip,
 } from '@mui/material';
 import {
   VpnKey,
@@ -123,6 +122,7 @@ export const TokenManagement: React.FC = () => {
     }
   };
 
+
   const handleCopyToken = async (token: string) => {
     try {
       await navigator.clipboard.writeText(token);
@@ -165,6 +165,34 @@ export const TokenManagement: React.FC = () => {
       return <Typography variant="body2">{minutes} minute{minutes !== 1 ? 's' : ''}</Typography>;
     } else {
       return <Typography variant="body2" color="error">Less than 1 minute</Typography>;
+    }
+  };
+
+  const formatRelativeTime = (dateString?: string) => {
+    if (!dateString) {
+      return <Chip label="Never" size="small" />;
+    }
+
+    const date = new Date(dateString);
+    const now = new Date();
+    const timeDiff = now.getTime() - date.getTime();
+    
+    if (timeDiff < 0) {
+      return <Typography variant="body2" color="error">Invalid date</Typography>;
+    }
+
+    const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+
+    if (days > 0) {
+      return <Typography variant="body2">{days} day{days !== 1 ? 's' : ''} ago</Typography>;
+    } else if (hours > 0) {
+      return <Typography variant="body2">{hours} hour{hours !== 1 ? 's' : ''} ago</Typography>;
+    } else if (minutes > 0) {
+      return <Typography variant="body2">{minutes} minute{minutes !== 1 ? 's' : ''} ago</Typography>;
+    } else {
+      return <Typography variant="body2">Just now</Typography>;
     }
   };
 
@@ -233,27 +261,12 @@ export const TokenManagement: React.FC = () => {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Box display="flex" alignItems="center">
-                        <Typography
-                          variant="body2"
-                          fontFamily="monospace"
-                          sx={{ mr: 1 }}
-                        >
-                          {token.token.substring(0, 8)}...
-                        </Typography>
-                        <Tooltip title={copiedToken === token.token ? 'Copied!' : 'Copy token'}>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleCopyToken(token.token)}
-                          >
-                            {copiedToken === token.token ? (
-                              <CheckCircle color="success" />
-                            ) : (
-                              <ContentCopy />
-                            )}
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
+                      <Typography
+                        variant="body2"
+                        fontFamily="monospace"
+                      >
+                        {token.token.substring(0, 8)}...
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">
@@ -261,13 +274,7 @@ export const TokenManagement: React.FC = () => {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      {token.last_used ? (
-                        <Typography variant="body2">
-                          {new Date(token.last_used).toLocaleDateString()}
-                        </Typography>
-                      ) : (
-                        <Chip label="Never" size="small" />
-                      )}
+                      {formatRelativeTime(token.last_used)}
                     </TableCell>
                     <TableCell>
                       {formatExpirationTime(token.expires_at)}
@@ -304,11 +311,15 @@ export const TokenManagement: React.FC = () => {
                 <Box
                   sx={{
                     p: 2,
-                    bgcolor: 'grey.100',
+                    pr: 6, // Add right padding to make room for the copy button
+                    bgcolor: 'background.paper',
+                    border: 1,
+                    borderColor: 'divider',
                     borderRadius: 1,
                     fontFamily: 'monospace',
                     wordBreak: 'break-all',
                     position: 'relative',
+                    color: 'text.primary',
                   }}
                 >
                   {newToken}
