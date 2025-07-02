@@ -226,18 +226,10 @@ func (s *Server) DisconnectUpstreamServer(serverID int64) error {
 
 	// Close the connection outside of mutex
 	if err := client.Close(); err != nil {
-		// Don't log normal process exit codes as errors
-		if err.Error() != "exit status 1" && err.Error() != "exit status 0" {
-			// Log to server-specific log file
-			logger.GetServerLogger().LogServerEvent(serverID, "error", "Error closing connection to upstream server", map[string]interface{}{
-				"error": err.Error(),
-			})
-		} else {
-			// Log to server-specific log file
-			logger.GetServerLogger().LogServerEvent(serverID, "debug", "Upstream server process exited", map[string]interface{}{
-				"error": err.Error(),
-			})
-		}
+		// Log any remaining errors (should be rare now that signal terminations are handled in client)
+		logger.GetServerLogger().LogServerEvent(serverID, "error", "Error closing connection to upstream server", map[string]interface{}{
+			"error": err.Error(),
+		})
 	}
 
 	// Update tools, resources, and prompts under mutex

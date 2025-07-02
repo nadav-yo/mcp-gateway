@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -41,6 +42,9 @@ type MCPClient struct {
 	cancel      context.CancelFunc
 	logger      zerolog.Logger
 	serverID    int64 // Server ID for logging
+	// Process synchronization
+	processWait sync.Once
+	processErr  error
 }
 
 // NewMCPClient creates a new MCP client for the given upstream server
@@ -220,11 +224,15 @@ func (c *MCPClient) monitorStdioProcess() {
 			}
 		}()
 
-		err := c.process.Wait()
-		if err != nil {
+		// Use sync.Once to ensure Wait() is only called once
+		c.processWait.Do(func() {
+			c.processErr = c.process.Wait()
+		})
+
+		if c.processErr != nil {
 			// Only log unexpected exit codes as errors
 			// Some processes may exit with status 1 during normal shutdown
-			c.logger.Debug().Err(err).Msg("Stdio process exited with non-zero code")
+			c.logger.Debug().Err(c.processErr).Msg("Stdio process exited with non-zero code")
 		} else {
 			c.logger.Debug().Msg("Stdio process exited normally")
 		}
@@ -708,42 +716,66 @@ func (c *MCPClient) Close() error {
 			c.stdin = nil
 		}
 
-		// Wait for process to exit (with timeout)
+		// Use sync.Once to ensure Wait() is only called once
+		// This avoids race condition with monitorStdioProcess goroutine
 		done := make(chan error, 1)
 		go func() {
-			done <- c.process.Wait()
+			c.processWait.Do(func() {
+				c.processErr = c.process.Wait()
+			})
+			done <- c.processErr
 		}()
 
 		var finalErr error
+
 		select {
 		case err := <-done:
 			if err != nil {
-				// Only log non-zero exit codes as debug instead of error
-				// since they might be expected behavior (e.g., controlled shutdown)
-				c.logger.Debug().Err(err).Msg("Stdio process exited with non-zero code")
-				finalErr = err
+				// Check if this is an expected termination signal
+				errMsg := err.Error()
+				if errMsg == "signal: killed" || errMsg == "signal: interrupt" || errMsg == "signal: terminated" {
+					c.logger.Debug().Err(err).Msg("Stdio process terminated by signal (expected)")
+					// Don't return signal terminations as errors since they're expected
+					finalErr = nil
+				} else {
+					c.logger.Debug().Err(err).Msg("Stdio process exited with non-zero code")
+					finalErr = err
+				}
 			} else {
 				c.logger.Debug().Msg("Stdio process exited gracefully")
 			}
-		case <-time.After(5 * time.Second):
-			// Force kill if it doesn't exit gracefully
-			c.logger.Warn().Msg("Stdio process did not exit gracefully, forcing termination")
+		case <-time.After(3 * time.Second):
+			// Process didn't exit gracefully, try termination
+			c.logger.Warn().Msg("Stdio process did not exit gracefully, attempting termination")
 
-			// Check if process is still running before trying to kill it
 			if c.process.ProcessState == nil || !c.process.ProcessState.Exited() {
-				if err := c.process.Process.Kill(); err != nil {
-					c.logger.Error().Err(err).Msg("Failed to kill stdio process")
+				// Try SIGTERM first, then SIGINT, then force kill
+				if err := c.process.Process.Signal(syscall.SIGTERM); err != nil {
+					c.logger.Debug().Err(err).Msg("Failed to send SIGTERM, trying SIGINT")
+					if err := c.process.Process.Signal(syscall.SIGINT); err != nil {
+						c.logger.Debug().Err(err).Msg("Failed to send SIGINT, force killing")
+						c.process.Process.Kill()
+					}
 				}
 			} else {
 				c.logger.Info().Msg("Stdio process already exited")
 			}
 
-			// Wait for the Wait() call to complete
+			// Wait for termination to complete
 			select {
 			case err := <-done:
-				finalErr = err
+				// Check if this is an expected termination signal
+				if err != nil {
+					errMsg := err.Error()
+					if errMsg == "signal: killed" || errMsg == "signal: interrupt" || errMsg == "signal: terminated" {
+						c.logger.Debug().Err(err).Msg("Stdio process terminated by signal (expected)")
+						// Don't return signal terminations as errors since they're expected
+						finalErr = nil
+					} else {
+						finalErr = err
+					}
+				}
 			case <-time.After(2 * time.Second):
-				// Final timeout - the Wait() call should complete quickly after Kill()
 				c.logger.Warn().Msg("Timeout waiting for stdio process cleanup")
 			}
 		}
