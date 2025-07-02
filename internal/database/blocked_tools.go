@@ -46,7 +46,12 @@ func (db *DB) CreateBlockedTool(blockedTool *BlockedToolRecord) (*BlockedToolRec
 	VALUES (?, ?, ?)
 	`
 
-	result, err := db.conn.Exec(query, blockedTool.ServerID, blockedTool.Type, blockedTool.ToolName)
+	var result sql.Result
+	err = db.retryOnBusy(func() error {
+		var execErr error
+		result, execErr = db.conn.Exec(query, blockedTool.ServerID, blockedTool.Type, blockedTool.ToolName)
+		return execErr
+	}, 3)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create blocked tool: %w", err)
 	}
@@ -66,13 +71,14 @@ func (db *DB) GetBlockedTool(id int64) (*BlockedToolRecord, error) {
 	FROM blocked_tools WHERE id = ?
 	`
 
-	row := db.conn.QueryRow(query, id)
-
 	var blockedTool BlockedToolRecord
-	err := row.Scan(
-		&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
-		&blockedTool.ToolName, &blockedTool.CreatedAt,
-	)
+	err := db.retryOnBusy(func() error {
+		row := db.conn.QueryRow(query, id)
+		return row.Scan(
+			&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
+			&blockedTool.ToolName, &blockedTool.CreatedAt,
+		)
+	}, 3)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("blocked tool with ID %d not found", id)
@@ -97,27 +103,31 @@ func (db *DB) ListBlockedToolsByServerID(serverID int64, serverType string) ([]*
 	ORDER BY tool_name ASC
 	`
 
-	rows, err := db.conn.Query(query, serverID, serverType)
+	var blockedTools []*BlockedToolRecord
+	err := db.retryOnBusy(func() error {
+		rows, err := db.conn.Query(query, serverID, serverType)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		// Clear the slice for retry attempts
+		blockedTools = nil
+		for rows.Next() {
+			var blockedTool BlockedToolRecord
+			err := rows.Scan(
+				&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
+				&blockedTool.ToolName, &blockedTool.CreatedAt,
+			)
+			if err != nil {
+				return err
+			}
+			blockedTools = append(blockedTools, &blockedTool)
+		}
+		return rows.Err()
+	}, 3)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list blocked tools: %w", err)
-	}
-	defer rows.Close()
-
-	var blockedTools []*BlockedToolRecord
-	for rows.Next() {
-		var blockedTool BlockedToolRecord
-		err := rows.Scan(
-			&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
-			&blockedTool.ToolName, &blockedTool.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan blocked tool: %w", err)
-		}
-		blockedTools = append(blockedTools, &blockedTool)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over blocked tools: %w", err)
 	}
 
 	return blockedTools, nil
@@ -131,27 +141,31 @@ func (db *DB) ListAllBlockedTools() ([]*BlockedToolRecord, error) {
 	ORDER BY type ASC, server_id ASC, tool_name ASC
 	`
 
-	rows, err := db.conn.Query(query)
+	var blockedTools []*BlockedToolRecord
+	err := db.retryOnBusy(func() error {
+		rows, err := db.conn.Query(query)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		// Clear the slice for retry attempts
+		blockedTools = nil
+		for rows.Next() {
+			var blockedTool BlockedToolRecord
+			err := rows.Scan(
+				&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
+				&blockedTool.ToolName, &blockedTool.CreatedAt,
+			)
+			if err != nil {
+				return err
+			}
+			blockedTools = append(blockedTools, &blockedTool)
+		}
+		return rows.Err()
+	}, 3)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list all blocked tools: %w", err)
-	}
-	defer rows.Close()
-
-	var blockedTools []*BlockedToolRecord
-	for rows.Next() {
-		var blockedTool BlockedToolRecord
-		err := rows.Scan(
-			&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
-			&blockedTool.ToolName, &blockedTool.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan blocked tool: %w", err)
-		}
-		blockedTools = append(blockedTools, &blockedTool)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over blocked tools: %w", err)
 	}
 
 	return blockedTools, nil
@@ -166,7 +180,10 @@ func (db *DB) DeleteBlockedTool(id int64) error {
 	}
 
 	query := "DELETE FROM blocked_tools WHERE id = ?"
-	_, err = db.conn.Exec(query, id)
+	err = db.retryOnBusy(func() error {
+		_, execErr := db.conn.Exec(query, id)
+		return execErr
+	}, 3)
 	if err != nil {
 		return fmt.Errorf("failed to delete blocked tool: %w", err)
 	}
@@ -182,7 +199,12 @@ func (db *DB) DeleteBlockedToolByDetails(serverID int64, serverType, toolName st
 	}
 
 	query := "DELETE FROM blocked_tools WHERE server_id = ? AND type = ? AND tool_name = ?"
-	result, err := db.conn.Exec(query, serverID, serverType, toolName)
+	var result sql.Result
+	err := db.retryOnBusy(func() error {
+		var execErr error
+		result, execErr = db.conn.Exec(query, serverID, serverType, toolName)
+		return execErr
+	}, 3)
 	if err != nil {
 		return fmt.Errorf("failed to delete blocked tool: %w", err)
 	}
@@ -204,11 +226,18 @@ func (db *DB) DeleteBlockedToolByDetails(serverID int64, serverType, toolName st
 
 // blockedToolExists checks if a blocked tool already exists
 func (db *DB) blockedToolExists(serverID int64, serverType, toolName string) (bool, error) {
-	query := "SELECT COUNT(*) FROM blocked_tools WHERE server_id = ? AND type = ? AND tool_name = ?"
 	var count int
-	err := db.conn.QueryRow(query, serverID, serverType, toolName).Scan(&count)
-	if err != nil {
-		return false, fmt.Errorf("failed to check blocked tool existence: %w", err)
+	var err error
+
+	// Use retry logic for database busy errors
+	retryErr := db.retryOnBusy(func() error {
+		query := "SELECT COUNT(*) FROM blocked_tools WHERE server_id = ? AND type = ? AND tool_name = ?"
+		err = db.conn.QueryRow(query, serverID, serverType, toolName).Scan(&count)
+		return err
+	}, 3)
+
+	if retryErr != nil {
+		return false, fmt.Errorf("failed to check blocked tool existence: %w", retryErr)
 	}
 	return count > 0, nil
 }
@@ -227,16 +256,35 @@ func (db *DB) serverExistsForType(serverID int64, serverType string) (bool, erro
 		return false, fmt.Errorf("invalid server type: %s", serverType)
 	}
 
-	err := db.conn.QueryRow(query, serverID).Scan(&count)
-	if err != nil {
-		return false, fmt.Errorf("failed to check server existence: %w", err)
+	var err error
+	// Use retry logic for database busy errors
+	retryErr := db.retryOnBusy(func() error {
+		err = db.conn.QueryRow(query, serverID).Scan(&count)
+		return err
+	}, 3)
+
+	if retryErr != nil {
+		return false, fmt.Errorf("failed to check server existence: %w", retryErr)
 	}
 	return count > 0, nil
 }
 
 // IsToolBlocked checks if a specific tool is blocked for a server
 func (db *DB) IsToolBlocked(serverID int64, serverType, toolName string) (bool, error) {
-	return db.blockedToolExists(serverID, serverType, toolName)
+	var count int
+	var err error
+
+	// Use retry logic for database busy errors
+	retryErr := db.retryOnBusy(func() error {
+		query := "SELECT COUNT(*) FROM blocked_tools WHERE server_id = ? AND type = ? AND tool_name = ?"
+		err = db.conn.QueryRow(query, serverID, serverType, toolName).Scan(&count)
+		return err
+	}, 3)
+
+	if retryErr != nil {
+		return false, fmt.Errorf("failed to check if tool is blocked: %w", retryErr)
+	}
+	return count > 0, nil
 }
 
 // GetBlockedToolsSet returns a set of blocked tool names for a specific server

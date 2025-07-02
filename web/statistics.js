@@ -60,6 +60,8 @@ class StatisticsTab {
                 active_tokens: stats.active_tokens || 0,
                 total_users: stats.total_users || 0,
                 total_blocked_tools: stats.total_blocked_tools || 0,
+                total_blocked_prompts: stats.total_blocked_prompts || 0,
+                total_blocked_resources: stats.total_blocked_resources || 0,
                 servers_by_status: stats.servers_by_status || {},
                 servers_by_type: stats.servers_by_type || {},
                 auth_methods_count: stats.auth_methods_count || {},
@@ -82,6 +84,8 @@ class StatisticsTab {
                 document.getElementById('activeTokensStats').textContent = stats.active_tokens || 0;
                 document.getElementById('totalUsersStats').textContent = stats.total_users || 0;
                 document.getElementById('totalBlockedToolsStats').textContent = stats.total_blocked_tools || 0;
+                document.getElementById('totalBlockedPromptsStats').textContent = stats.total_blocked_prompts || 0;
+                document.getElementById('totalBlockedResourcesStats').textContent = stats.total_blocked_resources || 0;
                 
                 // Update dynamic status charts
                 this.updateStatusChart('serverStatusStats', stats.servers_by_status || {});

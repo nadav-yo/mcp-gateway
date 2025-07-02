@@ -443,16 +443,31 @@ class ServersTab {
         // Sort prompts alphabetically by name
         const sortedPrompts = [...promptDetails].sort((a, b) => a.name.localeCompare(b.name));
         
-        const promptRows = sortedPrompts.map(prompt => `
-            <tr>
-                <td class="prompt-name">${this.adminPanel.escapeHtml(prompt.name)}</td>
-                <td class="prompt-description">${this.adminPanel.escapeHtml(prompt.description || 'No description available')}</td>
-            </tr>
-        `).join('');
+        const promptRows = sortedPrompts.map(prompt => {
+            const isBlocked = prompt.blocked || false;
+            const toggleId = `prompt-toggle-${prompt.serverId || 0}-${prompt.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            
+            return `
+                <tr>
+                    <td class="prompt-name">${this.adminPanel.escapeHtml(prompt.name)}</td>
+                    <td class="prompt-description">${this.adminPanel.escapeHtml(prompt.description || 'No description available')}</td>
+                    <td class="prompt-toggle-cell">
+                        <label class="prompt-toggle-switch">
+                            <input type="checkbox" 
+                                   id="${toggleId}" 
+                                   ${!isBlocked ? 'checked' : ''} 
+                                   onchange="serversTab.togglePromptBlock(${prompt.serverId || 0}, '${prompt.serverType || 'servers'}', '${this.adminPanel.escapeHtml(prompt.name)}', this.checked)">
+                            <span class="prompt-toggle-slider"></span>
+                        </label>
+                        <span class="prompt-toggle-label">${isBlocked ? 'Blocked' : 'Enabled'}</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
         
         return `
             <table class="prompts-table">
-                <thead><tr><th>Prompt Name</th><th>Description</th></tr></thead>
+                <thead><tr><th>Prompt Name</th><th>Description</th><th>Status</th></tr></thead>
                 <tbody>${promptRows}</tbody>
             </table>
         `;
@@ -466,17 +481,32 @@ class ServersTab {
         // Sort resources alphabetically by name
         const sortedResources = [...resourceDetails].sort((a, b) => a.name.localeCompare(b.name));
         
-        const resourceRows = sortedResources.map(resource => `
-            <tr>
-                <td class="resource-name">${this.adminPanel.escapeHtml(resource.name)}</td>
-                <td class="resource-description">${this.adminPanel.escapeHtml(resource.description || 'No description available')}</td>
-                <td class="resource-uri">${this.adminPanel.escapeHtml(resource.uri || 'No URI available')}</td>
-            </tr>
-        `).join('');
+        const resourceRows = sortedResources.map(resource => {
+            const isBlocked = resource.blocked || false;
+            const toggleId = `resource-toggle-${resource.serverId || 0}-${resource.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            
+            return `
+                <tr>
+                    <td class="resource-name">${this.adminPanel.escapeHtml(resource.name)}</td>
+                    <td class="resource-description">${this.adminPanel.escapeHtml(resource.description || 'No description available')}</td>
+                    <td class="resource-uri">${this.adminPanel.escapeHtml(resource.uri || 'No URI available')}</td>
+                    <td class="resource-toggle-cell">
+                        <label class="resource-toggle-switch">
+                            <input type="checkbox" 
+                                   id="${toggleId}" 
+                                   ${!isBlocked ? 'checked' : ''} 
+                                   onchange="serversTab.toggleResourceBlock(${resource.serverId || 0}, '${resource.serverType || 'servers'}', '${this.adminPanel.escapeHtml(resource.name)}', this.checked)">
+                            <span class="resource-toggle-slider"></span>
+                        </label>
+                        <span class="resource-toggle-label">${isBlocked ? 'Blocked' : 'Enabled'}</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
         
         return `
             <table class="resources-table">
-                <thead><tr><th>Resource Name</th><th>Description</th><th>URI</th></tr></thead>
+                <thead><tr><th>Resource Name</th><th>Description</th><th>URI</th><th>Status</th></tr></thead>
                 <tbody>${resourceRows}</tbody>
             </table>
         `;
@@ -529,6 +559,78 @@ class ServersTab {
             }
             
             this.showError('Failed to toggle tool: ' + error.message);
+        }
+    }
+
+    // Prompt blocking/unblocking functionality
+    async togglePromptBlock(serverId, serverType, promptName, isEnabled) {
+        try {
+            const toggleData = {
+                server_id: serverId,
+                type: serverType,
+                prompt_name: promptName,
+                block: !isEnabled // if enabled=true, we want to unblock (block=false)
+            };
+
+            const response = await this.makeRequest('/api/blocked-prompts/toggle', 'POST', toggleData);
+            
+            // Update the toggle label
+            const toggleId = `prompt-toggle-${serverId}-${promptName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const toggleElement = document.getElementById(toggleId);
+            if (toggleElement) {
+                const labelElement = toggleElement.parentElement.nextElementSibling;
+                if (labelElement && labelElement.classList.contains('prompt-toggle-label')) {
+                    labelElement.textContent = isEnabled ? 'Enabled' : 'Blocked';
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error toggling prompt block:', error);
+            
+            // Revert the toggle state on error
+            const toggleId = `prompt-toggle-${serverId}-${promptName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const toggleElement = document.getElementById(toggleId);
+            if (toggleElement) {
+                toggleElement.checked = !isEnabled;
+            }
+            
+            this.showError('Failed to toggle prompt: ' + error.message);
+        }
+    }
+
+    // Resource blocking/unblocking functionality
+    async toggleResourceBlock(serverId, serverType, resourceName, isEnabled) {
+        try {
+            const toggleData = {
+                server_id: serverId,
+                type: serverType,
+                resource_name: resourceName,
+                block: !isEnabled // if enabled=true, we want to unblock (block=false)
+            };
+
+            const response = await this.makeRequest('/api/blocked-resources/toggle', 'POST', toggleData);
+            
+            // Update the toggle label
+            const toggleId = `resource-toggle-${serverId}-${resourceName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const toggleElement = document.getElementById(toggleId);
+            if (toggleElement) {
+                const labelElement = toggleElement.parentElement.nextElementSibling;
+                if (labelElement && labelElement.classList.contains('resource-toggle-label')) {
+                    labelElement.textContent = isEnabled ? 'Enabled' : 'Blocked';
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error toggling resource block:', error);
+            
+            // Revert the toggle state on error
+            const toggleId = `resource-toggle-${serverId}-${resourceName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const toggleElement = document.getElementById(toggleId);
+            if (toggleElement) {
+                toggleElement.checked = !isEnabled;
+            }
+            
+            this.showError('Failed to toggle resource: ' + error.message);
         }
     }
 

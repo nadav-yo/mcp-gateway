@@ -40,33 +40,77 @@ func (s *Server) updateStats() {
 	uptimeStr := formatDuration(uptime)
 
 	// Calculate available tools (excluding blocked tools)
+	// DEADLOCK FIX: First, get a copy of tools to avoid holding the lock during blocked tool checks
+	// This prevents deadlock when isToolBlocked() triggers cache refresh that also needs the mutex
+	var toolNames []string
+	var promptNames []string
+	var resourceNames []string
+	func() {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+
+		toolNames = make([]string, 0, len(s.tools))
+		for toolName := range s.tools {
+			toolNames = append(toolNames, toolName)
+		}
+
+		promptNames = make([]string, 0, len(s.prompts))
+		for promptName := range s.prompts {
+			promptNames = append(promptNames, promptName)
+		}
+
+		resourceNames = make([]string, 0, len(s.resources))
+		for resourceName := range s.resources {
+			resourceNames = append(resourceNames, resourceName)
+		}
+	}()
+
+	// Now check blocked status without holding any mutex
 	totalAvailableTools := 0
-	s.mu.RLock()
-	for toolName := range s.tools {
+	for _, toolName := range toolNames {
 		if !s.isToolBlocked(toolName) {
 			totalAvailableTools++
 		}
 	}
-	s.mu.RUnlock()
 	s.logger.Debug().Int("total_available_tools", totalAvailableTools).Msg("Calculated available tools")
+
+	// Calculate available prompts (excluding blocked prompts)
+	totalAvailablePrompts := 0
+	for _, promptName := range promptNames {
+		if !s.isPromptBlocked(promptName) {
+			totalAvailablePrompts++
+		}
+	}
+	s.logger.Debug().Int("total_available_prompts", totalAvailablePrompts).Msg("Calculated available prompts")
+
+	// Calculate available resources (excluding blocked resources)
+	totalAvailableResources := 0
+	for _, resourceName := range resourceNames {
+		if !s.isResourceBlocked(resourceName) {
+			totalAvailableResources++
+		}
+	}
+	s.logger.Debug().Int("total_available_resources", totalAvailableResources).Msg("Calculated available resources")
 
 	s.stats = types.GatewayStats{
 		UpstreamServers:   totalServers,
 		ConnectedServers:  connectedServers,
-		TotalTools:        totalAvailableTools, // Now reflects only available (non-blocked) tools
-		TotalResources:    len(s.resources),
-		TotalPrompts:      len(s.prompts),
+		TotalTools:        totalAvailableTools,       // Now reflects only available (non-blocked) tools
+		TotalResources:    totalAvailableResources,   // Now reflects only available (non-blocked) resources
+		TotalPrompts:      totalAvailablePrompts,     // Now reflects only available (non-blocked) prompts
 		RequestsProcessed: s.stats.RequestsProcessed, // Keep the existing count
 
 		// Additional statistics
-		ActiveTokens:       getIntFromStats(dbStats, "active_tokens"),
-		TotalUsers:         getIntFromStats(dbStats, "total_users"),
-		TotalBlockedTools:  getIntFromStats(dbStats, "total_blocked_tools"),
-		ServersByStatus:    getMapFromStats(dbStats, "servers_by_status"),
-		ServersByType:      getMapFromStats(dbStats, "servers_by_type"),
-		AuthMethodsCount:   getMapFromStats(dbStats, "auth_methods_count"),
-		SystemUptime:       uptimeStr,
-		LastDatabaseUpdate: getStringFromStats(dbStats, "last_database_update"),
+		ActiveTokens:          getIntFromStats(dbStats, "active_tokens"),
+		TotalUsers:            getIntFromStats(dbStats, "total_users"),
+		TotalBlockedTools:     getIntFromStats(dbStats, "total_blocked_tools"),
+		TotalBlockedPrompts:   getIntFromStats(dbStats, "total_blocked_prompts"),
+		TotalBlockedResources: getIntFromStats(dbStats, "total_blocked_resources"),
+		ServersByStatus:       getMapFromStats(dbStats, "servers_by_status"),
+		ServersByType:         getMapFromStats(dbStats, "servers_by_type"),
+		AuthMethodsCount:      getMapFromStats(dbStats, "auth_methods_count"),
+		SystemUptime:          uptimeStr,
+		LastDatabaseUpdate:    getStringFromStats(dbStats, "last_database_update"),
 	}
 }
 

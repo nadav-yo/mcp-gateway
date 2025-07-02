@@ -23,6 +23,10 @@ func (s *Server) handleMCPRequest(req *types.MCPRequest) *types.MCPResponse {
 		return s.handleResourcesList(req)
 	case "resources/read":
 		return s.handleResourcesRead(req)
+	case "prompts/list":
+		return s.handlePromptsList(req)
+	case "prompts/get":
+		return s.handlePromptsGet(req)
 	case "logging/setLevel":
 		return s.handleLoggingSetLevel(req)
 	default:
@@ -140,12 +144,22 @@ func (s *Server) handleToolsCall(req *types.MCPRequest) *types.MCPResponse {
 
 // handleResourcesList handles the resources/list request
 func (s *Server) handleResourcesList(req *types.MCPRequest) *types.MCPResponse {
-	resources := make([]types.Resource, 0, len(s.resources))
+	s.mu.RLock()
+	allResources := make([]types.Resource, 0, len(s.resources))
 	for _, resource := range s.resources {
-		resources = append(resources, *resource)
+		allResources = append(allResources, *resource)
+	}
+	s.mu.RUnlock()
+
+	// Filter out blocked resources
+	filteredResources := make([]types.Resource, 0, len(allResources))
+	for _, resource := range allResources {
+		if !s.isResourceBlocked(resource.URI) {
+			filteredResources = append(filteredResources, resource)
+		}
 	}
 
-	result := types.ResourceListResponse{Resources: resources}
+	result := types.ResourceListResponse{Resources: filteredResources}
 
 	return &types.MCPResponse{
 		JSONRPC: "2.0",
@@ -168,6 +182,14 @@ func (s *Server) handleResourcesRead(req *types.MCPRequest) *types.MCPResponse {
 
 	if !exists {
 		return s.errorResponse(req.ID, -32602, "Resource not found", fmt.Sprintf("Resource '%s' not found", readReq.URI))
+	}
+
+	// Check if the resource is blocked
+	if s.isResourceBlocked(readReq.URI) {
+		s.logger.Warn().
+			Str("resource_uri", readReq.URI).
+			Msg("Resource read blocked")
+		return s.errorResponse(req.ID, -32603, "Resource blocked", fmt.Sprintf("Resource '%s' is blocked by administrator", readReq.URI))
 	}
 
 	// Route the resource read request
@@ -197,6 +219,65 @@ func (s *Server) handleLoggingSetLevel(req *types.MCPRequest) *types.MCPResponse
 		JSONRPC: "2.0",
 		ID:      req.ID,
 		Result:  map[string]interface{}{},
+	}
+}
+
+// handlePromptsList handles the prompts/list request
+func (s *Server) handlePromptsList(req *types.MCPRequest) *types.MCPResponse {
+	s.mu.RLock()
+	allPrompts := make([]types.Prompt, 0, len(s.prompts))
+	for _, prompt := range s.prompts {
+		allPrompts = append(allPrompts, *prompt)
+	}
+	s.mu.RUnlock()
+
+	// Filter out blocked prompts
+	filteredPrompts := make([]types.Prompt, 0, len(allPrompts))
+	for _, prompt := range allPrompts {
+		if !s.isPromptBlocked(prompt.Name) {
+			filteredPrompts = append(filteredPrompts, prompt)
+		}
+	}
+
+	result := types.PromptListResponse{Prompts: filteredPrompts}
+
+	return &types.MCPResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result:  result,
+	}
+}
+
+// handlePromptsGet handles the prompts/get request
+func (s *Server) handlePromptsGet(req *types.MCPRequest) *types.MCPResponse {
+	var getReq types.GetPromptRequest
+	if err := json.Unmarshal(req.Params, &getReq); err != nil {
+		return s.errorResponse(req.ID, -32602, "Invalid params", err.Error())
+	}
+
+	s.mu.RLock()
+	prompt, exists := s.prompts[getReq.Name]
+	s.mu.RUnlock()
+
+	if !exists {
+		return s.errorResponse(req.ID, -32602, "Prompt not found", fmt.Sprintf("Prompt '%s' not found", getReq.Name))
+	}
+
+	// Check if the prompt is blocked
+	if s.isPromptBlocked(getReq.Name) {
+		s.logger.Warn().
+			Str("prompt_name", getReq.Name).
+			Msg("Prompt get blocked")
+		return s.errorResponse(req.ID, -32603, "Prompt blocked", fmt.Sprintf("Prompt '%s' is blocked by administrator", getReq.Name))
+	}
+
+	// Route the prompt get to the appropriate upstream server
+	result := s.routePromptGet(prompt, getReq.Name, getReq.Arguments)
+
+	return &types.MCPResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result:  result,
 	}
 }
 

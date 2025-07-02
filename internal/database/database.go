@@ -142,6 +142,30 @@ func (db *DB) createTables() error {
 
 	CREATE INDEX IF NOT EXISTS idx_blocked_tools_server_id ON blocked_tools(server_id, type);
 	CREATE INDEX IF NOT EXISTS idx_blocked_tools_tool_name ON blocked_tools(tool_name);
+
+	CREATE TABLE IF NOT EXISTS blocked_prompts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		server_id INTEGER NOT NULL,
+		type TEXT NOT NULL CHECK(type IN ('servers', 'curated_servers')),
+		prompt_name TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(server_id, type, prompt_name)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_blocked_prompts_server_id ON blocked_prompts(server_id, type);
+	CREATE INDEX IF NOT EXISTS idx_blocked_prompts_prompt_name ON blocked_prompts(prompt_name);
+
+	CREATE TABLE IF NOT EXISTS blocked_resources (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		server_id INTEGER NOT NULL,
+		type TEXT NOT NULL CHECK(type IN ('servers', 'curated_servers')),
+		resource_name TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(server_id, type, resource_name)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_blocked_resources_server_id ON blocked_resources(server_id, type);
+	CREATE INDEX IF NOT EXISTS idx_blocked_resources_resource_name ON blocked_resources(resource_name);
 	`
 
 	_, err := db.conn.Exec(query)

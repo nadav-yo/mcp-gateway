@@ -22,14 +22,14 @@ import (
 
 // MCPClient represents a client connection to an upstream MCP server
 type MCPClient struct {
-	upstream    *types.UpstreamServer
-	wsConn      *websocket.Conn
-	httpClient  *http.Client
+	upstream   *types.UpstreamServer
+	wsConn     *websocket.Conn
+	httpClient *http.Client
 	// For stdio connections
-	process     *exec.Cmd
-	stdin       io.WriteCloser
-	stdout      io.ReadCloser
-	stderr      io.ReadCloser
+	process *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  io.ReadCloser
+	stderr  io.ReadCloser
 	// Common fields
 	mu          sync.RWMutex
 	initialized bool
@@ -40,7 +40,7 @@ type MCPClient struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	logger      zerolog.Logger
-	serverID    int64  // Server ID for logging
+	serverID    int64 // Server ID for logging
 }
 
 // NewMCPClient creates a new MCP client for the given upstream server
@@ -56,7 +56,7 @@ func NewQuietMCPClient(upstream *types.UpstreamServer) *MCPClient {
 // NewMCPClientWithID creates a new MCP client for the given upstream server with a specific server ID
 func NewMCPClientWithID(upstream *types.UpstreamServer, serverID int64) *MCPClient {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	timeout := 30 * time.Second
 	if upstream.Timeout != "" {
 		if d, err := time.ParseDuration(upstream.Timeout); err == nil {
@@ -114,7 +114,7 @@ func (c *MCPClient) Connect() error {
 // connectWebSocket establishes a WebSocket connection
 func (c *MCPClient) connectWebSocket() error {
 	headers := http.Header{}
-	
+
 	// Add custom headers from upstream configuration
 	for k, v := range c.upstream.Headers {
 		headers.Set(k, v)
@@ -154,7 +154,7 @@ func (c *MCPClient) connectStdio() error {
 
 	// Create the command
 	c.process = exec.CommandContext(c.ctx, c.upstream.Command[0], c.upstream.Command[1:]...)
-	
+
 	// Set up pipes
 	stdin, err := c.process.StdinPipe()
 	if err != nil {
@@ -196,7 +196,7 @@ func (c *MCPClient) monitorStdioProcess() {
 				c.logger.Error().Interface("panic", r).Msg("Panic in stderr monitor goroutine")
 			}
 		}()
-		
+
 		scanner := bufio.NewScanner(c.stderr)
 		for scanner.Scan() {
 			select {
@@ -219,7 +219,7 @@ func (c *MCPClient) monitorStdioProcess() {
 				c.logger.Error().Interface("panic", r).Msg("Panic in process monitor goroutine")
 			}
 		}()
-		
+
 		err := c.process.Wait()
 		if err != nil {
 			// Only log unexpected exit codes as errors
@@ -254,7 +254,7 @@ func (c *MCPClient) initialize() error {
 	}
 
 	c.initialized = true
-	
+
 	// After initialization, fetch available tools and resources
 	if err := c.fetchCapabilities(); err != nil {
 		c.logger.Debug().Err(err).Msg("Failed to fetch capabilities from upstream")
@@ -307,14 +307,14 @@ func (c *MCPClient) fetchTools() error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	for _, tool := range toolsResp.Tools {
 		// Add prefix if configured
 		name := tool.Name
 		if c.upstream.Prefix != "" {
 			name = c.upstream.Prefix + "_" + tool.Name
 		}
-		
+
 		toolCopy := tool
 		toolCopy.Name = name
 		c.tools[name] = &toolCopy
@@ -345,14 +345,14 @@ func (c *MCPClient) fetchResources() error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	for _, resource := range resourcesResp.Resources {
 		// Add prefix if configured
 		uri := resource.URI
 		if c.upstream.Prefix != "" {
 			uri = c.upstream.Prefix + "_" + resource.URI
 		}
-		
+
 		resourceCopy := resource
 		resourceCopy.URI = uri
 		c.resources[uri] = &resourceCopy
@@ -383,14 +383,14 @@ func (c *MCPClient) fetchPrompts() error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	for _, prompt := range promptsResp.Prompts {
 		// Add prefix if configured
 		name := prompt.Name
 		if c.upstream.Prefix != "" {
 			name = c.upstream.Prefix + "_" + prompt.Name
 		}
-		
+
 		promptCopy := prompt
 		promptCopy.Name = name
 		c.prompts[name] = &promptCopy
@@ -450,7 +450,7 @@ func (c *MCPClient) sendWebSocketRequest(request *types.MCPRequest) (*types.MCPR
 	c.mu.Lock()
 	err := c.wsConn.WriteJSON(request)
 	c.mu.Unlock()
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to send WebSocket request: %w", err)
 	}
@@ -460,7 +460,7 @@ func (c *MCPClient) sendWebSocketRequest(request *types.MCPRequest) (*types.MCPR
 	c.mu.Lock()
 	err = c.wsConn.ReadJSON(&response)
 	c.mu.Unlock()
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to read WebSocket response: %w", err)
 	}
@@ -482,12 +482,12 @@ func (c *MCPClient) sendHTTPRequest(request *types.MCPRequest) (*types.MCPRespon
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
-	
+
 	// Add custom headers from upstream configuration first
 	for k, v := range c.upstream.Headers {
 		httpReq.Header.Set(k, v)
 	}
-	
+
 	// Add authentication headers if configured (this will override any auth headers from custom config)
 	if err := c.addAuthHeaders(httpReq); err != nil {
 		return nil, fmt.Errorf("failed to add authentication headers: %w", err)
@@ -522,7 +522,7 @@ func (c *MCPClient) sendHTTPRequest(request *types.MCPRequest) (*types.MCPRespon
 
 	// Check content type to determine how to parse the response
 	contentType := resp.Header.Get("Content-Type")
-	
+
 	if strings.Contains(contentType, "text/event-stream") {
 		// Handle Server-Sent Events response
 		return c.parseSSEResponse(resp.Body)
@@ -539,28 +539,28 @@ func (c *MCPClient) sendHTTPRequest(request *types.MCPRequest) (*types.MCPRespon
 // parseSSEResponse parses a Server-Sent Events response and extracts the JSON message
 func (c *MCPClient) parseSSEResponse(body io.Reader) (*types.MCPResponse, error) {
 	scanner := bufio.NewScanner(body)
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		// Look for data lines in SSE format
 		if strings.HasPrefix(line, "data: ") {
 			jsonData := strings.TrimPrefix(line, "data: ")
-			
+
 			// Parse the JSON data
 			var response types.MCPResponse
 			if err := json.Unmarshal([]byte(jsonData), &response); err != nil {
 				return nil, fmt.Errorf("failed to decode SSE JSON: %w", err)
 			}
-			
+
 			return &response, nil
 		}
 	}
-	
+
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read SSE response: %w", err)
 	}
-	
+
 	return nil, fmt.Errorf("no data found in SSE response")
 }
 
@@ -639,7 +639,7 @@ func (c *MCPClient) ReadResource(uri string) (*types.ReadResourceResponse, error
 func (c *MCPClient) GetTools() map[string]*types.Tool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	tools := make(map[string]*types.Tool)
 	for k, v := range c.tools {
 		tools[k] = v
@@ -651,7 +651,7 @@ func (c *MCPClient) GetTools() map[string]*types.Tool {
 func (c *MCPClient) GetResources() map[string]*types.Resource {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	resources := make(map[string]*types.Resource)
 	for k, v := range c.resources {
 		resources[k] = v
@@ -663,7 +663,7 @@ func (c *MCPClient) GetResources() map[string]*types.Resource {
 func (c *MCPClient) GetPrompts() map[string]*types.Prompt {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	prompts := make(map[string]*types.Prompt)
 	for k, v := range c.prompts {
 		prompts[k] = v
@@ -682,24 +682,24 @@ func (c *MCPClient) IsConnected() bool {
 func (c *MCPClient) Close() error {
 	// Cancel the context first to signal all goroutines to stop
 	c.cancel()
-	
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Mark as not initialized to prevent further operations
 	c.initialized = false
-	
+
 	// Close server-specific logger if it exists
 	if c.serverID > 0 {
 		logger.GetServerLogger().CloseServerLogger(c.serverID)
 	}
-	
+
 	if c.wsConn != nil {
 		err := c.wsConn.Close()
 		c.wsConn = nil
 		return err
 	}
-	
+
 	// Close stdio process if running
 	if c.process != nil {
 		// Close stdin to signal the process to exit gracefully
@@ -707,13 +707,13 @@ func (c *MCPClient) Close() error {
 			c.stdin.Close()
 			c.stdin = nil
 		}
-		
+
 		// Wait for process to exit (with timeout)
 		done := make(chan error, 1)
 		go func() {
 			done <- c.process.Wait()
 		}()
-		
+
 		var finalErr error
 		select {
 		case err := <-done:
@@ -728,7 +728,7 @@ func (c *MCPClient) Close() error {
 		case <-time.After(5 * time.Second):
 			// Force kill if it doesn't exit gracefully
 			c.logger.Warn().Msg("Stdio process did not exit gracefully, forcing termination")
-			
+
 			// Check if process is still running before trying to kill it
 			if c.process.ProcessState == nil || !c.process.ProcessState.Exited() {
 				if err := c.process.Process.Kill(); err != nil {
@@ -737,7 +737,7 @@ func (c *MCPClient) Close() error {
 			} else {
 				c.logger.Info().Msg("Stdio process already exited")
 			}
-			
+
 			// Wait for the Wait() call to complete
 			select {
 			case err := <-done:
@@ -747,7 +747,7 @@ func (c *MCPClient) Close() error {
 				c.logger.Warn().Msg("Timeout waiting for stdio process cleanup")
 			}
 		}
-		
+
 		// Clean up process references
 		c.process = nil
 		if c.stdout != nil {
@@ -758,10 +758,10 @@ func (c *MCPClient) Close() error {
 			c.stderr.Close()
 			c.stderr = nil
 		}
-		
+
 		return finalErr
 	}
-	
+
 	return nil
 }
 
@@ -863,7 +863,7 @@ func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPRespo
 	// Use a channel to receive the response with timeout
 	responseChan := make(chan *types.MCPResponse, 1)
 	errorChan := make(chan error, 1)
-	
+
 	go func() {
 		// Read the response from stdout
 		scanner := bufio.NewScanner(c.stdout)
@@ -877,7 +877,7 @@ func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPRespo
 		}
 
 		responseBytes := scanner.Bytes()
-		
+
 		// Parse the response
 		var response types.MCPResponse
 		if err := json.Unmarshal(responseBytes, &response); err != nil {
@@ -906,4 +906,40 @@ func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPRespo
 	case <-c.ctx.Done():
 		return nil, fmt.Errorf("context cancelled")
 	}
+}
+
+// GetPrompt calls prompts/get on the upstream server
+func (c *MCPClient) GetPrompt(name string, arguments map[string]interface{}) (*types.GetPromptResponse, error) {
+	// Remove prefix if present
+	originalName := name
+	if c.upstream.Prefix != "" && len(name) > len(c.upstream.Prefix)+1 {
+		if name[:len(c.upstream.Prefix)+1] == c.upstream.Prefix+"_" {
+			originalName = name[len(c.upstream.Prefix)+1:]
+		}
+	}
+
+	req := types.GetPromptRequest{
+		Name:      originalName,
+		Arguments: arguments,
+	}
+
+	response, err := c.sendRequest("prompts/get", req)
+	if err != nil {
+		return nil, err
+	}
+
+	if response.Error != nil {
+		return nil, fmt.Errorf("prompt get error: %s", response.Error.Message)
+	}
+
+	var promptResp types.GetPromptResponse
+	if resultBytes, err := json.Marshal(response.Result); err == nil {
+		if err := json.Unmarshal(resultBytes, &promptResp); err != nil {
+			return nil, fmt.Errorf("failed to parse prompt response: %w", err)
+		}
+	} else {
+		return nil, fmt.Errorf("failed to parse prompt response: %w", err)
+	}
+
+	return &promptResp, nil
 }

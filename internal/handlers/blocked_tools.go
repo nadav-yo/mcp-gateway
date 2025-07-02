@@ -14,8 +14,9 @@ import (
 
 // BlockedToolHandler handles CRUD operations for blocked tools
 type BlockedToolHandler struct {
-	db     *database.DB
-	logger zerolog.Logger
+	db                      *database.DB
+	logger                  zerolog.Logger
+	invalidateCacheCallback func() // Callback to invalidate server cache
 }
 
 // NewBlockedToolHandler creates a new blocked tool handler
@@ -23,6 +24,15 @@ func NewBlockedToolHandler(db *database.DB) *BlockedToolHandler {
 	return &BlockedToolHandler{
 		db:     db,
 		logger: logger.GetLogger("blocked-tool-handler"),
+	}
+}
+
+// NewBlockedToolHandlerWithCallback creates a new blocked tool handler with cache invalidation callback
+func NewBlockedToolHandlerWithCallback(db *database.DB, invalidateCallback func()) *BlockedToolHandler {
+	return &BlockedToolHandler{
+		db:                      db,
+		logger:                  logger.GetLogger("blocked-tool-handler"),
+		invalidateCacheCallback: invalidateCallback,
 	}
 }
 
@@ -67,6 +77,11 @@ func (h *BlockedToolHandler) CreateBlockedTool(w http.ResponseWriter, r *http.Re
 	}
 
 	h.writeSuccessResponse(w, http.StatusCreated, "Blocked tool created successfully", created)
+
+	// Invalidate cache after creating blocked tool
+	if h.invalidateCacheCallback != nil {
+		h.invalidateCacheCallback()
+	}
 
 	// Audit log for blocked tool creation
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
@@ -204,6 +219,11 @@ func (h *BlockedToolHandler) DeleteBlockedTool(w http.ResponseWriter, r *http.Re
 
 	h.writeSuccessResponse(w, http.StatusOK, "Blocked tool deleted successfully", nil)
 
+	// Invalidate cache after deleting blocked tool
+	if h.invalidateCacheCallback != nil {
+		h.invalidateCacheCallback()
+	}
+
 	// Audit log for blocked tool deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
 		logger.GetAuditLogger().Info().
@@ -256,6 +276,11 @@ func (h *BlockedToolHandler) DeleteBlockedToolByDetails(w http.ResponseWriter, r
 	}
 
 	h.writeSuccessResponse(w, http.StatusOK, "Blocked tool deleted successfully", nil)
+
+	// Invalidate cache after deleting blocked tool
+	if h.invalidateCacheCallback != nil {
+		h.invalidateCacheCallback()
+	}
 
 	// Audit log for blocked tool deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
@@ -316,6 +341,11 @@ func (h *BlockedToolHandler) ToggleBlockedTool(w http.ResponseWriter, r *http.Re
 
 		h.writeSuccessResponse(w, http.StatusCreated, "Tool blocked successfully", created)
 
+		// Invalidate cache after blocking tool
+		if h.invalidateCacheCallback != nil {
+			h.invalidateCacheCallback()
+		}
+
 		// Audit log for blocking
 		if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
 			logger.GetAuditLogger().Info().
@@ -340,6 +370,11 @@ func (h *BlockedToolHandler) ToggleBlockedTool(w http.ResponseWriter, r *http.Re
 		}
 
 		h.writeSuccessResponse(w, http.StatusOK, "Tool unblocked successfully", nil)
+
+		// Invalidate cache after unblocking tool
+		if h.invalidateCacheCallback != nil {
+			h.invalidateCacheCallback()
+		}
 
 		// Audit log for unblocking
 		if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {

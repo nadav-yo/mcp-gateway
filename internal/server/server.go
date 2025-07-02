@@ -54,24 +54,41 @@ const (
 
 // Server represents the MCP gateway server
 type Server struct {
-	config              *config.Config
-	db                  *database.DB
-	upgrader            websocket.Upgrader
-	tools               map[string]*types.Tool
-	resources           map[string]*types.Resource
-	clients             map[string]*client.MCPClient
-	prompts             map[string]*types.Prompt // Store prompts from upstream servers (but don't expose locally)
-	clientsByID         map[int64]*client.MCPClient
-	mu                  sync.RWMutex
-	stats               types.GatewayStats
-	upstreamHandler     *handlers.UpstreamHandler
-	curatedHandler      *handlers.CuratedServerHandler
-	blockedToolsHandler *handlers.BlockedToolHandler
-	authHandler         *handlers.AuthHandler
-	logger              zerolog.Logger
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	startTime           time.Time
+	config                  *config.Config
+	db                      *database.DB
+	upgrader                websocket.Upgrader
+	tools                   map[string]*types.Tool
+	resources               map[string]*types.Resource
+	clients                 map[string]*client.MCPClient
+	prompts                 map[string]*types.Prompt // Store prompts from upstream servers (but don't expose locally)
+	clientsByID             map[int64]*client.MCPClient
+	mu                      sync.RWMutex
+	stats                   types.GatewayStats
+	upstreamHandler         *handlers.UpstreamHandler
+	curatedHandler          *handlers.CuratedServerHandler
+	blockedToolsHandler     *handlers.BlockedToolHandler
+	blockedPromptsHandler   *handlers.BlockedPromptHandler
+	blockedResourcesHandler *handlers.BlockedResourceHandler
+	authHandler             *handlers.AuthHandler
+	logger                  zerolog.Logger
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	startTime               time.Time
+
+	// Cache for blocked tools to reduce database hits
+	blockedToolsCache       map[string]bool // toolName -> isBlocked
+	blockedToolsCacheMu     sync.RWMutex
+	blockedToolsCacheExpiry time.Time
+
+	// Cache for blocked prompts to reduce database hits
+	blockedPromptsCache       map[string]bool // promptName -> isBlocked
+	blockedPromptsCacheMu     sync.RWMutex
+	blockedPromptsCacheExpiry time.Time
+
+	// Cache for blocked resources to reduce database hits
+	blockedResourcesCache       map[string]bool // resourceName -> isBlocked
+	blockedResourcesCacheMu     sync.RWMutex
+	blockedResourcesCacheExpiry time.Time
 }
 
 // Start initializes and starts the MCP gateway server
@@ -133,6 +150,11 @@ func New(cfg *config.Config, db *database.DB) *Server {
 		ctx:         ctx,
 		cancel:      cancel,
 		startTime:   time.Now(),
+
+		// Initialize blocked caches
+		blockedToolsCache:     make(map[string]bool),
+		blockedPromptsCache:   make(map[string]bool),
+		blockedResourcesCache: make(map[string]bool),
 	}
 
 	// Create upstream handler with server reference
@@ -141,8 +163,14 @@ func New(cfg *config.Config, db *database.DB) *Server {
 	// Create curated server handler
 	server.curatedHandler = handlers.NewCuratedServerHandler(db)
 
-	// Create blocked tools handler
-	server.blockedToolsHandler = handlers.NewBlockedToolHandler(db)
+	// Create blocked tools handler with cache invalidation callback
+	server.blockedToolsHandler = handlers.NewBlockedToolHandlerWithCallback(db, server.invalidateBlockedToolsCache)
+
+	// Create blocked prompts handler with cache invalidation callback
+	server.blockedPromptsHandler = handlers.NewBlockedPromptHandlerWithCallback(db, server.invalidateBlockedPromptsCache)
+
+	// Create blocked resources handler with cache invalidation callback
+	server.blockedResourcesHandler = handlers.NewBlockedResourceHandlerWithCallback(db, server.invalidateBlockedResourcesCache)
 
 	return server
 }
@@ -208,6 +236,8 @@ func (s *Server) setupUnauthenticatedRoutes(r *mux.Router) {
 
 	// Register blocked tools routes (no auth when disabled)
 	s.blockedToolsHandler.RegisterAdminRoutes(r)
+	s.blockedPromptsHandler.RegisterAdminRoutes(r)
+	s.blockedResourcesHandler.RegisterAdminRoutes(r)
 }
 
 // registerMCPRoutes registers MCP communication endpoints
@@ -242,6 +272,8 @@ func (s *Server) registerAdminRoutes(router *mux.Router) {
 	s.upstreamHandler.RegisterRoutes(router)
 	s.curatedHandler.RegisterAdminRoutes(router)
 	s.blockedToolsHandler.RegisterAdminRoutes(router)
+	s.blockedPromptsHandler.RegisterAdminRoutes(router)
+	s.blockedResourcesHandler.RegisterAdminRoutes(router)
 }
 
 // registerCommonRoutes registers routes available to all users
@@ -415,32 +447,266 @@ func (s *Server) isUserAdmin(r *http.Request) bool {
 }
 
 // isToolBlocked checks if a tool is blocked for any of the servers that provide it
+// Uses caching to reduce database hits
 func (s *Server) isToolBlocked(toolName string) bool {
-	s.mu.RLock()
-	serversWithTool := make([]int64, 0)
-	for serverID, mcpClient := range s.clientsByID {
-		if mcpClient.IsConnected() {
-			clientTools := mcpClient.GetTools()
-			if _, hasTool := clientTools[toolName]; hasTool {
-				serversWithTool = append(serversWithTool, serverID)
+	// Check cache first
+	s.blockedToolsCacheMu.RLock()
+	if time.Now().Before(s.blockedToolsCacheExpiry) {
+		if blocked, exists := s.blockedToolsCache[toolName]; exists {
+			s.blockedToolsCacheMu.RUnlock()
+			return blocked
+		}
+	}
+	s.blockedToolsCacheMu.RUnlock()
+
+	// Cache miss or expired - rebuild cache
+	s.refreshBlockedToolsCache()
+
+	// Check cache again
+	s.blockedToolsCacheMu.RLock()
+	blocked := s.blockedToolsCache[toolName]
+	s.blockedToolsCacheMu.RUnlock()
+
+	return blocked
+}
+
+// isPromptBlocked checks if a prompt is blocked for any of the servers that provide it
+// Uses caching to reduce database hits
+func (s *Server) isPromptBlocked(promptName string) bool {
+	// Check cache first
+	s.blockedPromptsCacheMu.RLock()
+	if time.Now().Before(s.blockedPromptsCacheExpiry) {
+		if blocked, exists := s.blockedPromptsCache[promptName]; exists {
+			s.blockedPromptsCacheMu.RUnlock()
+			return blocked
+		}
+	}
+	s.blockedPromptsCacheMu.RUnlock()
+
+	// Cache miss or expired - rebuild cache
+	s.refreshBlockedPromptsCache()
+
+	// Check cache again
+	s.blockedPromptsCacheMu.RLock()
+	blocked := s.blockedPromptsCache[promptName]
+	s.blockedPromptsCacheMu.RUnlock()
+
+	return blocked
+}
+
+// isResourceBlocked checks if a resource is blocked for any of the servers that provide it
+// Uses caching to reduce database hits
+func (s *Server) isResourceBlocked(resourceName string) bool {
+	// Check cache first
+	s.blockedResourcesCacheMu.RLock()
+	if time.Now().Before(s.blockedResourcesCacheExpiry) {
+		if blocked, exists := s.blockedResourcesCache[resourceName]; exists {
+			s.blockedResourcesCacheMu.RUnlock()
+			return blocked
+		}
+	}
+	s.blockedResourcesCacheMu.RUnlock()
+
+	// Cache miss or expired - rebuild cache
+	s.refreshBlockedResourcesCache()
+
+	// Check cache again
+	s.blockedResourcesCacheMu.RLock()
+	blocked := s.blockedResourcesCache[resourceName]
+	s.blockedResourcesCacheMu.RUnlock()
+
+	return blocked
+}
+
+// refreshBlockedToolsCache rebuilds the blocked tools cache
+// DEADLOCK FIX: This function now copies data from the server mutex before doing database operations
+// to prevent deadlocks when cache refresh happens during server disconnect/connect operations
+func (s *Server) refreshBlockedToolsCache() {
+	s.blockedToolsCacheMu.Lock()
+	defer s.blockedToolsCacheMu.Unlock()
+
+	// Don't rebuild if recently refreshed by another goroutine
+	if time.Now().Before(s.blockedToolsCacheExpiry) {
+		return
+	}
+
+	s.logger.Debug().Msg("Refreshing blocked tools cache")
+
+	// Clear existing cache
+	s.blockedToolsCache = make(map[string]bool)
+
+	// Get all tools and their providing servers - copy data to avoid holding lock during DB operations
+	var toolServerMap map[string][]int64
+	func() {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+
+		toolServerMap = make(map[string][]int64) // toolName -> []serverID
+		for serverID, mcpClient := range s.clientsByID {
+			if mcpClient.IsConnected() {
+				clientTools := mcpClient.GetTools()
+				for toolName := range clientTools {
+					toolServerMap[toolName] = append(toolServerMap[toolName], serverID)
+				}
 			}
 		}
-	}
-	s.mu.RUnlock()
+	}()
 
-	// Check blocked status without holding the mutex
-	for _, serverID := range serversWithTool {
-		blocked, err := s.db.IsToolBlocked(serverID, "servers", toolName)
-		if err != nil {
-			s.logger.Error().Err(err).Int64("server_id", serverID).Str("tool_name", toolName).Msg("Error checking if tool is blocked")
-			continue
+	// Batch check blocked status for all tools - do this outside of any mutex locks
+	for toolName, serverIDs := range toolServerMap {
+		isBlocked := false
+		for _, serverID := range serverIDs {
+			blocked, err := s.db.IsToolBlocked(serverID, "servers", toolName)
+			if err != nil {
+				s.logger.Error().Err(err).Int64("server_id", serverID).Str("tool_name", toolName).Msg("Error checking if tool is blocked")
+				continue
+			}
+			if blocked {
+				isBlocked = true
+				break // If blocked on any server, tool is blocked
+			}
 		}
-		if blocked {
-			return true
-		}
+		s.blockedToolsCache[toolName] = isBlocked
 	}
 
-	return false
+	// Set cache expiry (5 minutes)
+	s.blockedToolsCacheExpiry = time.Now().Add(5 * time.Minute)
+
+	s.logger.Debug().Int("cached_tools", len(s.blockedToolsCache)).Msg("Blocked tools cache refreshed")
+}
+
+// refreshBlockedPromptsCache rebuilds the blocked prompts cache
+func (s *Server) refreshBlockedPromptsCache() {
+	s.blockedPromptsCacheMu.Lock()
+	defer s.blockedPromptsCacheMu.Unlock()
+
+	// Don't rebuild if recently refreshed by another goroutine
+	if time.Now().Before(s.blockedPromptsCacheExpiry) {
+		return
+	}
+
+	s.logger.Debug().Msg("Refreshing blocked prompts cache")
+
+	// Clear existing cache
+	s.blockedPromptsCache = make(map[string]bool)
+
+	// Get all prompts and their providing servers - copy data to avoid holding lock during DB operations
+	var promptServerMap map[string][]int64
+	func() {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+
+		promptServerMap = make(map[string][]int64) // promptName -> []serverID
+		for serverID, mcpClient := range s.clientsByID {
+			if mcpClient.IsConnected() {
+				clientPrompts := mcpClient.GetPrompts()
+				for promptName := range clientPrompts {
+					promptServerMap[promptName] = append(promptServerMap[promptName], serverID)
+				}
+			}
+		}
+	}()
+
+	// Batch check blocked status for all prompts - do this outside of any mutex locks
+	for promptName, serverIDs := range promptServerMap {
+		isBlocked := false
+		for _, serverID := range serverIDs {
+			blocked, err := s.db.IsPromptBlocked(serverID, "servers", promptName)
+			if err != nil {
+				s.logger.Error().Err(err).Int64("server_id", serverID).Str("prompt_name", promptName).Msg("Error checking if prompt is blocked")
+				continue
+			}
+			if blocked {
+				isBlocked = true
+				break // If blocked on any server, prompt is blocked
+			}
+		}
+		s.blockedPromptsCache[promptName] = isBlocked
+	}
+
+	// Set cache expiry (5 minutes)
+	s.blockedPromptsCacheExpiry = time.Now().Add(5 * time.Minute)
+
+	s.logger.Debug().Int("cached_prompts", len(s.blockedPromptsCache)).Msg("Blocked prompts cache refreshed")
+}
+
+// refreshBlockedResourcesCache rebuilds the blocked resources cache
+func (s *Server) refreshBlockedResourcesCache() {
+	s.blockedResourcesCacheMu.Lock()
+	defer s.blockedResourcesCacheMu.Unlock()
+
+	// Don't rebuild if recently refreshed by another goroutine
+	if time.Now().Before(s.blockedResourcesCacheExpiry) {
+		return
+	}
+
+	s.logger.Debug().Msg("Refreshing blocked resources cache")
+
+	// Clear existing cache
+	s.blockedResourcesCache = make(map[string]bool)
+
+	// Get all resources and their providing servers - copy data to avoid holding lock during DB operations
+	var resourceServerMap map[string][]int64
+	func() {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+
+		resourceServerMap = make(map[string][]int64) // resourceName -> []serverID
+		for serverID, mcpClient := range s.clientsByID {
+			if mcpClient.IsConnected() {
+				clientResources := mcpClient.GetResources()
+				for resourceName := range clientResources {
+					resourceServerMap[resourceName] = append(resourceServerMap[resourceName], serverID)
+				}
+			}
+		}
+	}()
+
+	// Batch check blocked status for all resources - do this outside of any mutex locks
+	for resourceName, serverIDs := range resourceServerMap {
+		isBlocked := false
+		for _, serverID := range serverIDs {
+			blocked, err := s.db.IsResourceBlocked(serverID, "servers", resourceName)
+			if err != nil {
+				s.logger.Error().Err(err).Int64("server_id", serverID).Str("resource_name", resourceName).Msg("Error checking if resource is blocked")
+				continue
+			}
+			if blocked {
+				isBlocked = true
+				break // If blocked on any server, resource is blocked
+			}
+		}
+		s.blockedResourcesCache[resourceName] = isBlocked
+	}
+
+	// Set cache expiry (5 minutes)
+	s.blockedResourcesCacheExpiry = time.Now().Add(5 * time.Minute)
+
+	s.logger.Debug().Int("cached_resources", len(s.blockedResourcesCache)).Msg("Blocked resources cache refreshed")
+}
+
+// invalidateBlockedToolsCache forces a cache refresh on next access
+func (s *Server) invalidateBlockedToolsCache() {
+	s.blockedToolsCacheMu.Lock()
+	s.blockedToolsCacheExpiry = time.Time{} // Set to zero time to force refresh
+	s.blockedToolsCacheMu.Unlock()
+	s.logger.Debug().Msg("Blocked tools cache invalidated")
+}
+
+// invalidateBlockedPromptsCache forces a cache refresh on next access
+func (s *Server) invalidateBlockedPromptsCache() {
+	s.blockedPromptsCacheMu.Lock()
+	s.blockedPromptsCacheExpiry = time.Time{} // Set to zero time to force refresh
+	s.blockedPromptsCacheMu.Unlock()
+	s.logger.Debug().Msg("Blocked prompts cache invalidated")
+}
+
+// invalidateBlockedResourcesCache forces a cache refresh on next access
+func (s *Server) invalidateBlockedResourcesCache() {
+	s.blockedResourcesCacheMu.Lock()
+	s.blockedResourcesCacheExpiry = time.Time{} // Set to zero time to force refresh
+	s.blockedResourcesCacheMu.Unlock()
+	s.logger.Debug().Msg("Blocked resources cache invalidated")
 }
 
 // serveHTMLWithAuth serves an HTML file with auth status injected
@@ -466,4 +732,40 @@ func (s *Server) serveHTMLWithAuth(w http.ResponseWriter, filePath string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(htmlContent))
+}
+
+// routePromptGet routes a prompt get request to the appropriate upstream server
+func (s *Server) routePromptGet(prompt *types.Prompt, name string, arguments map[string]interface{}) types.GetPromptResponse {
+	// Determine which upstream server this prompt belongs to
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Check if this is a prompt from an upstream server
+	for clientName, mcpClient := range s.clients {
+		if mcpClient.IsConnected() {
+			clientPrompts := mcpClient.GetPrompts()
+			if _, exists := clientPrompts[name]; exists {
+				// Route to upstream server
+				if result, err := mcpClient.GetPrompt(name, arguments); err == nil {
+					return *result
+				} else {
+					s.logger.Error().
+						Err(err).
+						Str("prompt_name", name).
+						Str("upstream", clientName).
+						Msg("Error getting prompt from upstream")
+					return types.GetPromptResponse{
+						Description: fmt.Sprintf("Error getting prompt from upstream: %v", err),
+						Messages:    []types.PromptMessage{},
+					}
+				}
+			}
+		}
+	}
+
+	// Prompt not found in any upstream server
+	return types.GetPromptResponse{
+		Description: fmt.Sprintf("Prompt '%s' not found in any upstream server", name),
+		Messages:    []types.PromptMessage{},
+	}
 }

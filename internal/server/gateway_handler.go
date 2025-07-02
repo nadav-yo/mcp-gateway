@@ -41,6 +41,22 @@ func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Get blocked prompts for this server
+		blockedPromptsSet := make(map[string]bool)
+		if serverID > 0 {
+			if blockedPrompts, err := s.db.GetBlockedPromptsSet(serverID, "servers"); err == nil {
+				blockedPromptsSet = blockedPrompts
+			}
+		}
+
+		// Get blocked resources for this server
+		blockedResourcesSet := make(map[string]bool)
+		if serverID > 0 {
+			if blockedResources, err := s.db.GetBlockedResourcesSet(serverID, "servers"); err == nil {
+				blockedResourcesSet = blockedResources
+			}
+		}
+
 		tools := mcpClient.GetTools()
 		toolDetails := make([]map[string]interface{}, 0, len(tools))
 		for toolName, tool := range tools {
@@ -55,19 +71,27 @@ func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 		prompts := mcpClient.GetPrompts()
 		promptDetails := make([]map[string]interface{}, 0, len(prompts))
 		for promptName, prompt := range prompts {
+			isBlocked := blockedPromptsSet[promptName]
 			promptDetails = append(promptDetails, map[string]interface{}{
 				"name":        promptName,
 				"description": prompt.Description,
+				"blocked":     isBlocked,
+				"serverId":    serverID,
+				"serverType":  "servers",
 			})
 		}
 
 		resources := mcpClient.GetResources()
 		resourceDetails := make([]map[string]interface{}, 0, len(resources))
 		for resourceName, resource := range resources {
+			isBlocked := blockedResourcesSet[resourceName]
 			resourceDetails = append(resourceDetails, map[string]interface{}{
 				"name":        resourceName,
 				"description": resource.Description,
 				"uri":         resource.URI,
+				"blocked":     isBlocked,
+				"serverId":    serverID,
+				"serverType":  "servers",
 			})
 		}
 

@@ -23,10 +23,7 @@ func (s *Server) connectToUpstreamServers() {
 
 // connectToUpstreamServersLocked performs the actual server connections while holding the mutex
 func (s *Server) connectToUpstreamServersLocked() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Get enabled servers from database
+	// Get enabled servers from database outside of mutex
 	servers, err := s.db.ListUpstreamServersForConnection(true) // only enabled servers with auth data
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to load upstream servers from database")
@@ -38,6 +35,7 @@ func (s *Server) connectToUpstreamServersLocked() {
 		upstream := serverRecord.ToUpstreamServer()
 
 		// Set status to "starting" for stdio servers since they take time to initialize
+		// Do this outside of mutex to avoid blocking other operations
 		if upstream.Type == "stdio" {
 			s.db.UpdateUpstreamServerStatus(serverRecord.ID, "starting")
 		}
@@ -52,16 +50,15 @@ func (s *Server) connectToUpstreamServersLocked() {
 				"type":     upstream.Type,
 			})
 
-			// Update status in database
+			// Update status in database outside of mutex
 			s.db.UpdateUpstreamServerStatus(serverRecord.ID, "error")
 			continue
 		}
 
+		// Now acquire mutex to update server state
+		s.mu.Lock()
 		s.clients[upstream.Name] = mcpClient
 		s.clientsByID[serverRecord.ID] = mcpClient
-
-		// Update status in database
-		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "connected")
 
 		// Aggregate tools from this upstream server
 		for name, tool := range mcpClient.GetTools() {
@@ -77,6 +74,10 @@ func (s *Server) connectToUpstreamServersLocked() {
 		for name, prompt := range mcpClient.GetPrompts() {
 			s.prompts[name] = prompt
 		}
+		s.mu.Unlock()
+
+		// Update status in database outside of mutex
+		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "connected")
 
 		// Log successful connection to server-specific log file
 		logger.GetServerLogger().LogServerEvent(serverRecord.ID, "info", "Successfully connected to upstream server", map[string]interface{}{
@@ -101,18 +102,14 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 
 	upstream := serverRecord.ToUpstreamServer()
 
-	s.mu.Lock()
-
-	// Track tools and resources before connection
-	initialToolCount := len(s.tools)
-	initialResourceCount := len(s.resources)
-
-	// Set status to "starting" for stdio servers since they take time to initialize
 	// Log connection attempt to server-specific log file
 	logger.GetServerLogger().LogServerEvent(serverRecord.ID, "info", "Connecting to upstream server", map[string]interface{}{
 		"upstream": upstream.Name,
 		"type":     upstream.Type,
 	})
+
+	// Set status to "starting" for stdio servers since they take time to initialize
+	// Do this outside of mutex to avoid blocking other operations
 	if upstream.Type == "stdio" {
 		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "starting")
 	}
@@ -120,7 +117,6 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 	mcpClient := client.NewMCPClientWithID(upstream, serverRecord.ID)
 
 	if err := mcpClient.Connect(); err != nil {
-		s.mu.Unlock()
 		// Log to server-specific log file
 		logger.GetServerLogger().LogServerEvent(serverRecord.ID, "error", "Failed to connect to upstream server", map[string]interface{}{
 			"error":    err.Error(),
@@ -133,42 +129,51 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
 
-	// Close existing connection if it exists
-	if existingClient, exists := s.clients[upstream.Name]; exists {
-		existingClient.Close()
-	}
-	if existingClient, exists := s.clientsByID[serverRecord.ID]; exists {
-		existingClient.Close()
-	}
+	// Now acquire mutex to update server state
+	var addedTools, addedResources bool
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-	s.clients[upstream.Name] = mcpClient
-	s.clientsByID[serverRecord.ID] = mcpClient
+		// Track tools and resources before connection
+		initialToolCount := len(s.tools)
+		initialResourceCount := len(s.resources)
 
-	// Update status in database
+		// Close existing connection if it exists
+		if existingClient, exists := s.clients[upstream.Name]; exists {
+			existingClient.Close()
+		}
+		if existingClient, exists := s.clientsByID[serverRecord.ID]; exists {
+			existingClient.Close()
+		}
+
+		s.clients[upstream.Name] = mcpClient
+		s.clientsByID[serverRecord.ID] = mcpClient
+
+		// Aggregate tools from this upstream server
+		for name, tool := range mcpClient.GetTools() {
+			s.tools[name] = tool
+		}
+
+		// Aggregate resources from this upstream server
+		for uri, resource := range mcpClient.GetResources() {
+			s.resources[uri] = resource
+		}
+
+		// Aggregate prompts from this upstream server (but don't expose them in gateway API)
+		for name, prompt := range mcpClient.GetPrompts() {
+			s.prompts[name] = prompt
+		}
+
+		// Check if we added new tools or resources
+		newToolCount := len(s.tools)
+		newResourceCount := len(s.resources)
+		addedTools = newToolCount > initialToolCount
+		addedResources = newResourceCount > initialResourceCount
+	}()
+
+	// Update status in database outside of mutex
 	s.db.UpdateUpstreamServerStatus(serverRecord.ID, "connected")
-
-	// Aggregate tools from this upstream server
-	for name, tool := range mcpClient.GetTools() {
-		s.tools[name] = tool
-	}
-
-	// Aggregate resources from this upstream server
-	for uri, resource := range mcpClient.GetResources() {
-		s.resources[uri] = resource
-	}
-
-	// Aggregate prompts from this upstream server (but don't expose them in gateway API)
-	for name, prompt := range mcpClient.GetPrompts() {
-		s.prompts[name] = prompt
-	}
-
-	// Check if we added new tools or resources
-	newToolCount := len(s.tools)
-	newResourceCount := len(s.resources)
-	addedTools := newToolCount > initialToolCount
-	addedResources := newResourceCount > initialResourceCount
-
-	s.mu.Unlock()
 
 	// Log successful connection to server-specific log file
 	logger.GetServerLogger().LogServerEvent(serverRecord.ID, "info", "Successfully connected to upstream server", map[string]interface{}{
@@ -176,27 +181,50 @@ func (s *Server) ConnectUpstreamServer(serverID int64) error {
 		"type":     upstream.Type,
 	})
 
-	// Update stats
+	// Update stats outside of mutex
 	s.updateStats()
 
-	s.logger.Info().Bool("added_tools", addedTools).Bool("added_resources", addedResources).Msg("Connected to new upstream server")
+	// Send notifications if tools or resources were added
+	s.logger.Info().Bool("added_tools", addedTools).Bool("added_resources", addedResources).Msg("Connected upstream server")
 
 	return nil
 }
 
 // DisconnectUpstreamServer disconnects and removes a specific upstream server connection
 func (s *Server) DisconnectUpstreamServer(serverID int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Extract client reference and clean up client maps under mutex
+	var client *client.MCPClient
+	var clientName string
 
-	// Find the client by ID
-	client, exists := s.clientsByID[serverID]
-	if !exists {
-		// Server not connected, nothing to do
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// Find the client by ID
+		var exists bool
+		client, exists = s.clientsByID[serverID]
+		if !exists {
+			// Server not connected, nothing to do
+			return
+		}
+
+		// Find the server name to remove from clients map
+		for name, c := range s.clients {
+			if c == client {
+				clientName = name
+				delete(s.clients, name)
+				break
+			}
+		}
+		delete(s.clientsByID, serverID)
+	}()
+
+	// If no client was found, return early
+	if client == nil {
 		return nil
 	}
 
-	// Close the connection
+	// Close the connection outside of mutex
 	if err := client.Close(); err != nil {
 		// Don't log normal process exit codes as errors
 		if err.Error() != "exit status 1" && err.Error() != "exit status 0" {
@@ -212,59 +240,57 @@ func (s *Server) DisconnectUpstreamServer(serverID int64) error {
 		}
 	}
 
-	// Remove from both maps
-	// First find the server name to remove from clients map
-	for name, c := range s.clients {
-		if c == client {
-			delete(s.clients, name)
-			break
+	// Update tools, resources, and prompts under mutex
+	var removedTools, removedResources bool
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// Remove tools, resources, and prompts from this server
+		// Note: This is a simple approach that removes all and re-aggregates from remaining servers
+		// In a more sophisticated implementation, we would track which server contributed which items
+		initialToolCount := len(s.tools)
+		initialResourceCount := len(s.resources)
+
+		s.tools = make(map[string]*types.Tool)
+		s.resources = make(map[string]*types.Resource)
+		s.prompts = make(map[string]*types.Prompt)
+
+		// Re-initialize local tools/resources
+		s.initializeFromConfig()
+
+		// Re-aggregate from remaining connected servers
+		for _, remainingClient := range s.clients {
+			// Aggregate tools
+			for name, tool := range remainingClient.GetTools() {
+				s.tools[name] = tool
+			}
+
+			// Aggregate resources
+			for uri, resource := range remainingClient.GetResources() {
+				s.resources[uri] = resource
+			}
+
+			// Aggregate prompts
+			for name, prompt := range remainingClient.GetPrompts() {
+				s.prompts[name] = prompt
+			}
 		}
-	}
-	delete(s.clientsByID, serverID)
 
-	// Remove tools, resources, and prompts from this server
-	// Note: This is a simple approach that removes all and re-aggregates from remaining servers
-	// In a more sophisticated implementation, we would track which server contributed which items
-	initialToolCount := len(s.tools)
-	initialResourceCount := len(s.resources)
+		// Check if we removed tools or resources
+		newToolCount := len(s.tools)
+		newResourceCount := len(s.resources)
+		removedTools = newToolCount < initialToolCount
+		removedResources = newResourceCount < initialResourceCount
+	}()
 
-	s.tools = make(map[string]*types.Tool)
-	s.resources = make(map[string]*types.Resource)
-	s.prompts = make(map[string]*types.Prompt)
-
-	// Re-initialize local tools/resources
-	s.initializeFromConfig()
-
-	// Re-aggregate from remaining connected servers
-	for _, remainingClient := range s.clients {
-		// Aggregate tools
-		for name, tool := range remainingClient.GetTools() {
-			s.tools[name] = tool
-		}
-
-		// Aggregate resources
-		for uri, resource := range remainingClient.GetResources() {
-			s.resources[uri] = resource
-		}
-
-		// Aggregate prompts
-		for name, prompt := range remainingClient.GetPrompts() {
-			s.prompts[name] = prompt
-		}
-	}
-
-	// Check if we removed tools or resources
-	newToolCount := len(s.tools)
-	newResourceCount := len(s.resources)
-	removedTools := newToolCount < initialToolCount
-	removedResources := newResourceCount < initialResourceCount
-
-	// Update stats
+	// Update stats outside of mutex to avoid deadlock
 	s.updateStats()
 
 	// Log disconnection to server-specific log file
 	logger.GetServerLogger().LogServerEvent(serverID, "info", "Disconnected upstream server", map[string]interface{}{
-		"server_id": serverID,
+		"server_id":   serverID,
+		"server_name": clientName,
 	})
 
 	// Send notifications if tools or resources were removed

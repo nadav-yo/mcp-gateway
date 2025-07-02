@@ -59,6 +59,7 @@ type SamplingCapability struct{}
 type ServerCapabilities struct {
 	Experimental map[string]interface{} `json:"experimental,omitempty"`
 	Logging      *LoggingCapability     `json:"logging,omitempty"`
+	Prompts      *PromptCapability      `json:"prompts,omitempty"`
 	Resources    *ResourceCapability    `json:"resources,omitempty"`
 	Tools        *ToolCapability        `json:"tools,omitempty"`
 }
@@ -74,6 +75,11 @@ type ResourceCapability struct {
 
 // ToolCapability represents tool capability
 type ToolCapability struct {
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
+// PromptCapability represents prompt capability
+type PromptCapability struct {
 	ListChanged bool `json:"listChanged,omitempty"`
 }
 
@@ -243,12 +249,14 @@ type GatewayStats struct {
 	RequestsProcessed int `json:"requests_processed"`
 
 	// Additional statistics
-	ActiveTokens       int            `json:"active_tokens"`
-	TotalUsers         int            `json:"total_users"`
-	TotalBlockedTools  int            `json:"total_blocked_tools"`
-	ServersByStatus    map[string]int `json:"servers_by_status"`
-	ServersByType      map[string]int `json:"servers_by_type"`
-	AuthMethodsCount   map[string]int `json:"auth_methods_count"`
-	SystemUptime       string         `json:"system_uptime"`
-	LastDatabaseUpdate string         `json:"last_database_update"`
+	ActiveTokens          int            `json:"active_tokens"`
+	TotalUsers            int            `json:"total_users"`
+	TotalBlockedTools     int            `json:"total_blocked_tools"`
+	TotalBlockedPrompts   int            `json:"total_blocked_prompts"`
+	TotalBlockedResources int            `json:"total_blocked_resources"`
+	ServersByStatus       map[string]int `json:"servers_by_status"`
+	ServersByType         map[string]int `json:"servers_by_type"`
+	AuthMethodsCount      map[string]int `json:"auth_methods_count"`
+	SystemUptime          string         `json:"system_uptime"`
+	LastDatabaseUpdate    string         `json:"last_database_update"`
 }

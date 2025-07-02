@@ -28,12 +28,12 @@ type ServerConfig struct {
 
 // MCPConfig contains MCP-specific settings
 type MCPConfig struct {
-	Version     string              `yaml:"version"`
-	Name        string              `yaml:"name"`
-	Description string              `yaml:"description"`
-	Tools       []ToolConfig        `yaml:"tools"`
-	Resources   []ResourceConfig    `yaml:"resources"`
-	Capabilities MCPCapabilities    `yaml:"capabilities"`
+	Version      string           `yaml:"version"`
+	Name         string           `yaml:"name"`
+	Description  string           `yaml:"description"`
+	Tools        []ToolConfig     `yaml:"tools"`
+	Resources    []ResourceConfig `yaml:"resources"`
+	Capabilities MCPCapabilities  `yaml:"capabilities"`
 }
 
 // GatewayConfig contains gateway-specific settings
@@ -65,6 +65,7 @@ type ResourceConfig struct {
 type MCPCapabilities struct {
 	Tools     ToolCapabilities     `yaml:"tools"`
 	Resources ResourceCapabilities `yaml:"resources"`
+	Prompts   PromptCapabilities   `yaml:"prompts"`
 	Logging   LoggingCapabilities  `yaml:"logging"`
 }
 
@@ -81,6 +82,10 @@ type LoggingCapabilities struct {
 	Level string `yaml:"level"`
 }
 
+type PromptCapabilities struct {
+	ListChanged bool `yaml:"list_changed"`
+}
+
 // SecurityConfig contains security settings
 type SecurityConfig struct {
 	EnableAuth bool     `yaml:"enable_auth"`
@@ -90,9 +95,9 @@ type SecurityConfig struct {
 
 // LoggingConfig contains logging settings
 type LoggingConfig struct {
-	Level    string           `yaml:"level"`
-	Format   string           `yaml:"format"`
-	Output   string           `yaml:"output"`
+	Level    string            `yaml:"level"`
+	Format   string            `yaml:"format"`
+	Output   string            `yaml:"output"`
 	Rotation LogRotationConfig `yaml:"rotation"`
 }
 
@@ -123,6 +128,7 @@ func Load(configPath string) (*Config, error) {
 			Capabilities: MCPCapabilities{
 				Tools:     ToolCapabilities{ListChanged: false},
 				Resources: ResourceCapabilities{Subscribe: false, ListChanged: false},
+				Prompts:   PromptCapabilities{ListChanged: false},
 				Logging:   LoggingCapabilities{Level: "info"},
 			},
 		},

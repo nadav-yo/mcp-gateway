@@ -12,10 +12,12 @@ mcp:
   
   capabilities:
     tools:
-      list_changed: false
+      list_changed: true
     resources:
       subscribe: false
-      list_changed: false
+      list_changed: true
+    prompts:
+      list_changed: true
     logging:
       level: "info"
 
