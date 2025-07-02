@@ -357,6 +357,7 @@ export const UserManagement: React.FC = () => {
               required
               fullWidth
               autoFocus
+              autoComplete="new-username"
             />
 
             <TextField
@@ -367,6 +368,7 @@ export const UserManagement: React.FC = () => {
               required
               fullWidth
               helperText="Password must be at least 6 characters long"
+              autoComplete="new-password"
             />
 
             <FormControlLabel

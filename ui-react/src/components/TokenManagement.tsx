@@ -21,6 +21,10 @@ import {
   Alert,
   CircularProgress,
   Chip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   VpnKey,
@@ -46,6 +50,7 @@ export const TokenManagement: React.FC = () => {
   const [error, setError] = useState('');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newTokenName, setNewTokenName] = useState('');
+  const [newTokenExpiry, setNewTokenExpiry] = useState('30d');
   const [newToken, setNewToken] = useState('');
   const [creating, setCreating] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
@@ -73,8 +78,28 @@ export const TokenManagement: React.FC = () => {
   }, [fetchTokens]);
 
   const handleCreateToken = async () => {
-    if (!newTokenName.trim()) {
+    if (!newTokenName.trim() || !newTokenExpiry) {
       return;
+    }
+
+    // Convert expiry period to actual date
+    let expiresAt = null;
+    if (newTokenExpiry) {
+      const now = new Date();
+      switch (newTokenExpiry) {
+        case '14d':
+          expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+          break;
+        case '30d':
+          expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+          break;
+        case '90d':
+          expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+          break;
+        case '1y':
+          expiresAt = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+          break;
+      }
     }
 
     setCreating(true);
@@ -86,6 +111,7 @@ export const TokenManagement: React.FC = () => {
         },
         body: JSON.stringify({
           description: newTokenName.trim(),
+          expires_at: expiresAt ? expiresAt.toISOString() : null,
         }),
       });
 
@@ -136,6 +162,7 @@ export const TokenManagement: React.FC = () => {
   const handleCloseCreateDialog = () => {
     setCreateDialogOpen(false);
     setNewTokenName('');
+    setNewTokenExpiry('30d');
     setNewToken('');
     setError('');
   };
@@ -336,17 +363,34 @@ export const TokenManagement: React.FC = () => {
                 </Box>
               </Box>
             ) : (
-              <TextField
-                autoFocus
-                margin="dense"
-                label="Token Name"
-                fullWidth
-                variant="outlined"
-                value={newTokenName}
-                onChange={(e) => setNewTokenName(e.target.value)}
-                disabled={creating}
-                helperText="Give your token a descriptive name"
-              />
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
+                  autoFocus
+                  margin="dense"
+                  label="Token Name"
+                  fullWidth
+                  variant="outlined"
+                  value={newTokenName}
+                  onChange={(e) => setNewTokenName(e.target.value)}
+                  disabled={creating}
+                  helperText="Give your token a descriptive name"
+                />
+                <FormControl fullWidth variant="outlined" required>
+                  <InputLabel>Expires In</InputLabel>
+                  <Select
+                    value={newTokenExpiry}
+                    onChange={(e) => setNewTokenExpiry(e.target.value)}
+                    label="Expires In"
+                    disabled={creating}
+                  >
+                    <MenuItem value="14d">14 days</MenuItem>
+                    <MenuItem value="30d">30 days</MenuItem>
+                    <MenuItem value="90d">90 days</MenuItem>
+                    <MenuItem value="1y">1 year</MenuItem>
+                    <MenuItem value="">Never expires</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
             )}
           </DialogContent>
           <DialogActions>
@@ -357,7 +401,7 @@ export const TokenManagement: React.FC = () => {
               <Button
                 onClick={handleCreateToken}
                 variant="contained"
-                disabled={!newTokenName.trim() || creating}
+                disabled={!newTokenName.trim() || !newTokenExpiry || creating}
               >
                 {creating ? 'Creating...' : 'Create Token'}
               </Button>

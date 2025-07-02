@@ -9,33 +9,7 @@ import {
   Alert,
   CircularProgress,
 } from '@mui/material';
-import { styled } from '@mui/material/styles';
 import { useAuth } from '../contexts/AuthContext';
-
-const LoginContainer = styled(Container)(({ theme }) => ({
-  minHeight: '100vh',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: theme.spacing(2),
-}));
-
-const LoginPaper = styled(Paper)(({ theme }) => ({
-  padding: theme.spacing(4),
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  maxWidth: 400,
-  width: '100%',
-  [theme.breakpoints.down('sm')]: {
-    padding: theme.spacing(3),
-  },
-}));
-
-const LoginForm = styled('form')(({ theme }) => ({
-  width: '100%',
-  marginTop: theme.spacing(1),
-}));
 
 interface LoginPageProps {
   // No props needed - using auth context
@@ -70,12 +44,31 @@ export const LoginPage: React.FC<LoginPageProps> = () => {
   };
 
   return (
-    <LoginContainer maxWidth="sm">
-      <LoginPaper elevation={3}>
+    <Container
+      maxWidth="sm"
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        py: 2,
+      }}
+    >
+      <Paper
+        elevation={3}
+        sx={{
+          p: { xs: 3, sm: 4 },
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          maxWidth: 400,
+          width: '100%',
+        }}
+      >
         <Typography component="h1" variant="h4" gutterBottom>
           MCP Gateway
         </Typography>
-        <Typography variant="h6" color="textSecondary" gutterBottom>
+        <Typography variant="h6" color="text.secondary" gutterBottom>
           Sign in to continue
         </Typography>
         
@@ -85,7 +78,14 @@ export const LoginPage: React.FC<LoginPageProps> = () => {
           </Alert>
         )}
 
-        <LoginForm onSubmit={handleSubmit}>
+        <Box
+          component="form"
+          onSubmit={handleSubmit}
+          sx={{
+            width: '100%',
+            mt: 1,
+          }}
+        >
           <TextField
             variant="outlined"
             margin="normal"
@@ -138,8 +138,8 @@ export const LoginPage: React.FC<LoginPageProps> = () => {
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
           </Box>
-        </LoginForm>
-      </LoginPaper>
-    </LoginContainer>
+        </Box>
+      </Paper>
+    </Container>
   );
 };
