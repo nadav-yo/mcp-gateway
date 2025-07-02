@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -52,11 +52,7 @@ export const TokenManagement: React.FC = () => {
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const { makeAuthenticatedRequest } = useAuth();
 
-  useEffect(() => {
-    fetchTokens();
-  }, []);
-
-  const fetchTokens = async () => {
+  const fetchTokens = useCallback(async () => {
     try {
       const response = await makeAuthenticatedRequest('/api/auth/tokens');
       if (response.ok) {
@@ -71,7 +67,11 @@ export const TokenManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [makeAuthenticatedRequest]);
+
+  useEffect(() => {
+    fetchTokens();
+  }, [fetchTokens]);
 
   const handleCreateToken = async () => {
     if (!newTokenName.trim()) {
@@ -140,6 +140,34 @@ export const TokenManagement: React.FC = () => {
     setError('');
   };
 
+  const formatExpirationTime = (expiresAt?: string) => {
+    if (!expiresAt) {
+      return <Chip label="Never" size="small" color="default" />;
+    }
+
+    const expirationDate = new Date(expiresAt);
+    const now = new Date();
+    const timeDiff = expirationDate.getTime() - now.getTime();
+    
+    if (timeDiff <= 0) {
+      return <Chip label="Expired" size="small" color="error" />;
+    }
+
+    const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+
+    if (days > 0) {
+      return <Typography variant="body2">{days} day{days !== 1 ? 's' : ''}</Typography>;
+    } else if (hours > 0) {
+      return <Typography variant="body2">{hours} hour{hours !== 1 ? 's' : ''}</Typography>;
+    } else if (minutes > 0) {
+      return <Typography variant="body2">{minutes} minute{minutes !== 1 ? 's' : ''}</Typography>;
+    } else {
+      return <Typography variant="body2" color="error">Less than 1 minute</Typography>;
+    }
+  };
+
   if (loading) {
     return (
       <Card>
@@ -192,6 +220,7 @@ export const TokenManagement: React.FC = () => {
                   <TableCell>Token</TableCell>
                   <TableCell>Created</TableCell>
                   <TableCell>Last Used</TableCell>
+                  <TableCell>Expires In</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -239,6 +268,9 @@ export const TokenManagement: React.FC = () => {
                       ) : (
                         <Chip label="Never" size="small" />
                       )}
+                    </TableCell>
+                    <TableCell>
+                      {formatExpirationTime(token.expires_at)}
                     </TableCell>
                     <TableCell align="right">
                       <IconButton

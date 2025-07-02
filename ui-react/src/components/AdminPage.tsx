@@ -27,6 +27,7 @@ import { UserManagement } from './UserManagement';
 import { Statistics } from './Statistics';
 import { Logs } from './Logs';
 import { UpstreamServers } from './UpstreamServers';
+import { DarkModeToggle } from './DarkModeToggle';
 
 interface AdminPageProps {
   onLogout: () => void;
@@ -91,6 +92,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             MCP Gateway - Admin Dashboard
           </Typography>
+          <DarkModeToggle />
           <Button
             color="inherit"
             startIcon={<Logout />}

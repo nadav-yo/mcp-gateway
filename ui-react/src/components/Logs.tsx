@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -15,19 +15,12 @@ import {
   Switch,
   Alert,
   CircularProgress,
-  IconButton,
-  Chip,
   Paper,
 } from '@mui/material';
 import {
   Description,
   Refresh,
   Download,
-  GetApp,
-  Computer,
-  Storage,
-  Security,
-  Schedule,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -107,7 +100,7 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
   };
 
   // Load available server logs
-  const loadServerLogs = async () => {
+  const loadServerLogs = useCallback(async () => {
     setLogsListLoading(true);
     try {
       const headers: HeadersInit = {};
@@ -129,10 +122,10 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
     } finally {
       setLogsListLoading(false);
     }
-  };
+  }, [token]);
 
   // Load gateway log content
-  const loadGatewayLog = async (filename: string) => {
+  const loadGatewayLog = useCallback(async (filename: string) => {
     setLoading(true);
     setError('');
     setCurrentLogType('gateway');
@@ -172,10 +165,10 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
     } finally {
       setLoading(false);
     }
-  };
+  }, [token, tailEnabled]);
 
   // Load server log content
-  const loadServerLog = async (serverId: number, serverName: string) => {
+  const loadServerLog = useCallback(async (serverId: number, serverName: string) => {
     setLoading(true);
     setError('');
     setCurrentLogType('server');
@@ -216,16 +209,16 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
     } finally {
       setLoading(false);
     }
-  };
+  }, [token, tailEnabled]);
 
   // Refresh current log
-  const refreshCurrentLog = () => {
+  const refreshCurrentLog = useCallback(() => {
     if (currentLogType === 'gateway' && currentLogFilename) {
       loadGatewayLog(currentLogFilename);
     } else if (currentLogType === 'server' && currentLogServerId) {
       loadServerLog(currentLogServerId, currentServerName);
     }
-  };
+  }, [currentLogType, currentLogFilename, currentLogServerId, currentServerName, loadGatewayLog, loadServerLog]);
 
   // Download current log
   const downloadCurrentLog = async () => {
@@ -301,12 +294,12 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
         autoRefreshTimerRef.current = null;
       }
     }
-  }, [autoRefresh, currentLogType, currentLogFilename, currentLogServerId, tailEnabled]);
+  }, [autoRefresh, currentLogType, currentLogFilename, currentLogServerId, tailEnabled, refreshCurrentLog]);
 
   // Load server logs on component mount
   useEffect(() => {
     loadServerLogs();
-  }, [token]);
+  }, [loadServerLogs]);
 
   // Handle automatic server selection when props are provided
   useEffect(() => {
@@ -317,7 +310,7 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
         loadServerLog(selectedServerId, selectedServerName);
       }
     }
-  }, [selectedServerId, selectedServerName, serverLogs]);
+  }, [selectedServerId, selectedServerName, serverLogs, loadServerLog]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -505,7 +498,8 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
               sx={{
                 flex: 1,
                 p: 2,
-                bgcolor: 'grey.50',
+                bgcolor: 'background.paper',
+                color: 'text.primary',
                 fontFamily: 'monospace',
                 fontSize: '12px',
                 overflow: 'auto',

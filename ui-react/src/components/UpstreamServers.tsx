@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -20,9 +20,6 @@ import {
   MenuItem,
   SelectChangeEvent,
   Snackbar,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Switch,
   FormControlLabel,
   Table,
@@ -40,8 +37,6 @@ import {
   Edit,
   Delete,
   PowerSettingsNew,
-  ExpandMore,
-  ExpandLess,
   Refresh,
   Search,
   Clear,
@@ -131,7 +126,7 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
   const [searchTerm, setSearchTerm] = useState('');
   const [connectedOnly, setConnectedOnly] = useState(false);
-  const [expandedServers, setExpandedServers] = useState<Set<number>>(new Set());
+
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
   const [expandedResources, setExpandedResources] = useState<Set<number>>(new Set());
   const [expandedPrompts, setExpandedPrompts] = useState<Set<number>>(new Set());
@@ -140,32 +135,7 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
   const [refreshTimer, setRefreshTimer] = useState<NodeJS.Timeout | null>(null);
   const { token } = useAuth();
 
-  useEffect(() => {
-    fetchUpstreamServers();
-  }, []);
-
-  useEffect(() => {
-    if (autoRefresh) {
-      const timer = setInterval(() => {
-        fetchUpstreamServers(true); // Pass true to indicate this is an auto-refresh
-      }, 5000); // Refresh every 5 seconds
-      setRefreshTimer(timer);
-      return () => clearInterval(timer);
-    } else if (refreshTimer) {
-      clearInterval(refreshTimer);
-      setRefreshTimer(null);
-    }
-  }, [autoRefresh]);
-
-  useEffect(() => {
-    return () => {
-      if (refreshTimer) {
-        clearInterval(refreshTimer);
-      }
-    };
-  }, []);
-
-  const fetchUpstreamServers = async (isAutoRefresh = false) => {
+  const fetchUpstreamServers = useCallback(async (isAutoRefresh = false) => {
     try {
       // Only set loading state on initial load, not during auto-refresh
       if (!isAutoRefresh) {
@@ -208,7 +178,32 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
         setLoading(false);
       }
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    fetchUpstreamServers();
+  }, [fetchUpstreamServers]);
+
+  useEffect(() => {
+    if (autoRefresh) {
+      const timer = setInterval(() => {
+        fetchUpstreamServers(true); // Pass true to indicate this is an auto-refresh
+      }, 5000); // Refresh every 5 seconds
+      setRefreshTimer(timer);
+      return () => clearInterval(timer);
+    } else if (refreshTimer) {
+      clearInterval(refreshTimer);
+      setRefreshTimer(null);
+    }
+  }, [autoRefresh, fetchUpstreamServers, refreshTimer]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+      }
+    };
+  }, [refreshTimer]);
 
   const mergeServersWithStatus = (serverList: UpstreamServer[], statusData: any): UpstreamServer[] => {
     const upstreamServers = statusData.gateway?.upstream_servers || [];
@@ -401,17 +396,7 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
     }
   };
 
-  const toggleServerExpansion = (serverId: number) => {
-    setExpandedServers(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(serverId)) {
-        newSet.delete(serverId);
-      } else {
-        newSet.add(serverId);
-      }
-      return newSet;
-    });
-  };
+
 
   const toggleToolsExpansion = (serverId: number) => {
     setExpandedTools(prev => {
@@ -519,13 +504,7 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
     return 'Disconnected';
   };
 
-  const formatDate = (dateString: string): string => {
-    try {
-      return new Date(dateString).toLocaleDateString();
-    } catch {
-      return dateString;
-    }
-  };
+
 
   const validateForm = () => {
     if (!formData.name || !formData.type) return false;

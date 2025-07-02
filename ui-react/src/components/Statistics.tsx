@@ -1,13 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card,
-  CardContent,
   Typography,
   Box,
   Button,
   CircularProgress,
   Alert,
-  Divider,
+  Paper,
 } from '@mui/material';
 import {
   Assessment,
@@ -16,6 +14,10 @@ import {
   Storage,
   Computer,
   VpnKey,
+  Block,
+  Timeline,
+  Build,
+  Folder,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -48,24 +50,39 @@ interface StatCardProps {
   title: string;
   value: string | number;
   icon?: React.ReactNode;
+  color?: string;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ title, value, icon }) => (
-  <Card sx={{ height: '100%', display: 'flex', alignItems: 'center' }}>
-    <CardContent sx={{ width: '100%', textAlign: 'center' }}>
-      {icon && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
-          {icon}
-        </Box>
-      )}
-      <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-        {value}
-      </Typography>
-      <Typography variant="body2" color="textSecondary">
-        {title}
-      </Typography>
-    </CardContent>
-  </Card>
+const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color = 'primary.main' }) => (
+  <Paper 
+    elevation={2} 
+    sx={{ 
+      height: '100%',
+      p: 2,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textAlign: 'center',
+      transition: 'all 0.2s ease-in-out',
+      '&:hover': {
+        elevation: 4,
+        transform: 'translateY(-2px)',
+      }
+    }}
+  >
+    {icon && (
+      <Box sx={{ mb: 1, color }}>
+        {icon}
+      </Box>
+    )}
+    <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color, mb: 0.5 }}>
+      {value}
+    </Typography>
+    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.875rem' }}>
+      {title}
+    </Typography>
+  </Paper>
 );
 
 interface DistributionCardProps {
@@ -75,34 +92,39 @@ interface DistributionCardProps {
 }
 
 const DistributionCard: React.FC<DistributionCardProps> = ({ title, data, icon }) => (
-  <Card sx={{ height: '100%' }}>
-    <CardContent>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        {icon && <Box sx={{ mr: 1 }}>{icon}</Box>}
-        <Typography variant="h6" component="h3">
-          {title}
-        </Typography>
+  <Paper elevation={2} sx={{ height: '100%', p: 2 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+      {icon && <Box sx={{ mr: 1, color: 'primary.main' }}>{icon}</Box>}
+      <Typography variant="h6" component="h3" sx={{ fontWeight: 600 }}>
+        {title}
+      </Typography>
+    </Box>
+    {Object.keys(data).length === 0 ? (
+      <Typography variant="body2" color="textSecondary" textAlign="center" sx={{ py: 2 }}>
+        No data available
+      </Typography>
+    ) : (
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        {Object.entries(data).map(([key, value]) => (
+          <Box key={key} sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            p: 1,
+            borderRadius: 1,
+            bgcolor: 'background.default'
+          }}>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              {formatLabel(key)}
+            </Typography>
+            <Typography variant="h6" color="primary.main" sx={{ fontWeight: 'bold' }}>
+              {value}
+            </Typography>
+          </Box>
+        ))}
       </Box>
-      {Object.keys(data).length === 0 ? (
-        <Typography variant="body2" color="textSecondary" textAlign="center">
-          No data available
-        </Typography>
-      ) : (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {Object.entries(data).map(([key, value]) => (
-            <Box key={key} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="body2">
-                {formatLabel(key)}
-              </Typography>
-              <Typography variant="h6" color="primary.main">
-                {value}
-              </Typography>
-            </Box>
-          ))}
-        </Box>
-      )}
-    </CardContent>
-  </Card>
+    )}
+  </Paper>
 );
 
 const formatLabel = (key: string): string => {
@@ -135,7 +157,7 @@ export const Statistics: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const { token } = useAuth();
 
-  const fetchStatistics = async () => {
+  const fetchStatistics = useCallback(async () => {
     setLoading(true);
     setError('');
     
@@ -169,236 +191,235 @@ export const Statistics: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     fetchStatistics();
-  }, [token]);
+  }, [token, fetchStatistics]);
 
   if (loading) {
     return (
-      <Card>
-        <CardContent>
-          <Box display="flex" justifyContent="center" alignItems="center" minHeight={200}>
-            <CircularProgress />
-          </Box>
-        </CardContent>
-      </Card>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight={400}>
+        <CircularProgress size={60} />
+      </Box>
     );
   }
 
   if (error) {
     return (
-      <Card>
-        <CardContent>
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-          <Box textAlign="center">
-            <Button variant="contained" onClick={fetchStatistics} startIcon={<Refresh />}>
-              Retry
-            </Button>
-          </Box>
-        </CardContent>
-      </Card>
+      <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+        <Box textAlign="center">
+          <Button variant="contained" onClick={fetchStatistics} startIcon={<Refresh />}>
+            Retry
+          </Button>
+        </Box>
+      </Box>
     );
   }
 
   if (!stats || !info) {
     return (
-      <Card>
-        <CardContent>
-          <Typography variant="body2" color="textSecondary" textAlign="center">
-            No statistics available
-          </Typography>
-        </CardContent>
-      </Card>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight={400}>
+        <Typography variant="body1" color="textSecondary">
+          No statistics available
+        </Typography>
+      </Box>
     );
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Box sx={{ p: 2, maxWidth: 1400, mx: 'auto' }}>
       {/* Header */}
-      <Card>
-        <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <Assessment sx={{ mr: 1, color: 'primary.main' }} />
-              <Typography variant="h5" component="h1">
+      <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Assessment sx={{ mr: 2, color: 'primary.main', fontSize: 32 }} />
+            <Box>
+              <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold', mb: 0.5 }}>
                 Gateway Statistics
               </Typography>
+              {lastUpdated && (
+                <Typography variant="body2" color="textSecondary">
+                  Last updated: {lastUpdated.toLocaleString()}
+                </Typography>
+              )}
             </Box>
-            <Button variant="outlined" onClick={fetchStatistics} startIcon={<Refresh />}>
-              Refresh
-            </Button>
           </Box>
-          {lastUpdated && (
-            <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-              Last updated: {lastUpdated.toLocaleString()}
-            </Typography>
-          )}
-        </CardContent>
-      </Card>
+          <Button 
+            variant="contained" 
+            onClick={fetchStatistics} 
+            startIcon={<Refresh />}
+            sx={{ minWidth: 120 }}
+          >
+            Refresh
+          </Button>
+        </Box>
+      </Paper>
 
       {/* Core Statistics */}
-      <Card>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Core Statistics
-          </Typography>
-          <Box sx={{ 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            gap: 2,
-            '& > *': { flex: '1 1 200px', minWidth: '200px' }
-          }}>
-            <StatCard 
-              title="Total Servers" 
-              value={stats.upstream_servers} 
-              icon={<Storage color="primary" />}
-            />
-            <StatCard 
-              title="Connected Servers" 
-              value={stats.connected_servers}
-              icon={<Computer color="success" />}
-            />
-            <StatCard 
-              title="Available Tools" 
-              value={stats.total_tools}
-            />
-            <StatCard 
-              title="Available Prompts" 
-              value={stats.total_prompts}
-            />
-            <StatCard 
-              title="Available Resources" 
-              value={stats.total_resources}
-            />
-            <StatCard 
-              title="Requests Processed" 
-              value={stats.requests_processed}
-            />
-          </Box>
-        </CardContent>
-      </Card>
+      <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>
+        Core Statistics
+      </Typography>
+      <Box sx={{ 
+        display: 'grid', 
+        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(6, 1fr)' },
+        gap: 2,
+        mb: 4
+      }}>
+        <StatCard 
+          title="Total Servers" 
+          value={stats.upstream_servers} 
+          icon={<Storage sx={{ fontSize: 28 }} />}
+          color="primary.main"
+        />
+        <StatCard 
+          title="Connected Servers" 
+          value={stats.connected_servers}
+          icon={<Computer sx={{ fontSize: 28 }} />}
+          color="success.main"
+        />
+        <StatCard 
+          title="Available Tools" 
+          value={stats.total_tools}
+          icon={<Build sx={{ fontSize: 28 }} />}
+          color="info.main"
+        />
+        <StatCard 
+          title="Available Prompts" 
+          value={stats.total_prompts}
+          icon={<Assessment sx={{ fontSize: 28 }} />}
+          color="warning.main"
+        />
+        <StatCard 
+          title="Available Resources" 
+          value={stats.total_resources}
+          icon={<Folder sx={{ fontSize: 28 }} />}
+          color="secondary.main"
+        />
+        <StatCard 
+          title="Requests Processed" 
+          value={stats.requests_processed}
+          icon={<Timeline sx={{ fontSize: 28 }} />}
+          color="success.main"
+        />
+      </Box>
 
       {/* User & Security Statistics */}
-      <Card>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            User & Security
-          </Typography>
-          <Box sx={{ 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            gap: 2,
-            '& > *': { flex: '1 1 200px', minWidth: '200px' }
-          }}>
-            <StatCard 
-              title="Active Tokens" 
-              value={stats.active_tokens}
-              icon={<VpnKey color="primary" />}
-            />
-            <StatCard 
-              title="Total Users" 
-              value={stats.total_users}
-              icon={<Security color="primary" />}
-            />
-            <StatCard 
-              title="Blocked Tools" 
-              value={stats.total_blocked_tools}
-            />
-            <StatCard 
-              title="Blocked Prompts" 
-              value={stats.total_blocked_prompts}
-            />
-            <StatCard 
-              title="Blocked Resources" 
-              value={stats.total_blocked_resources}
-            />
-          </Box>
-        </CardContent>
-      </Card>
+      <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>
+        User & Security
+      </Typography>
+      <Box sx={{ 
+        display: 'grid', 
+        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(5, 1fr)' },
+        gap: 2,
+        mb: 4
+      }}>
+        <StatCard 
+          title="Active Tokens" 
+          value={stats.active_tokens}
+          icon={<VpnKey sx={{ fontSize: 28 }} />}
+          color="primary.main"
+        />
+        <StatCard 
+          title="Total Users" 
+          value={stats.total_users}
+          icon={<Security sx={{ fontSize: 28 }} />}
+          color="success.main"
+        />
+        <StatCard 
+          title="Blocked Tools" 
+          value={stats.total_blocked_tools}
+          icon={<Block sx={{ fontSize: 28 }} />}
+          color="error.main"
+        />
+        <StatCard 
+          title="Blocked Prompts" 
+          value={stats.total_blocked_prompts}
+          icon={<Block sx={{ fontSize: 28 }} />}
+          color="error.main"
+        />
+        <StatCard 
+          title="Blocked Resources" 
+          value={stats.total_blocked_resources}
+          icon={<Block sx={{ fontSize: 28 }} />}
+          color="error.main"
+        />
+      </Box>
 
       {/* Distribution Charts */}
+      <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>
+        Distribution Analysis
+      </Typography>
       <Box sx={{ 
-        display: 'flex', 
-        flexWrap: 'wrap', 
+        display: 'grid', 
+        gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' },
         gap: 3,
-        '& > *': { flex: '1 1 300px', minWidth: '300px' }
+        mb: 4
       }}>
         <DistributionCard 
           title="Server Status Distribution"
           data={stats.servers_by_status}
-          icon={<Assessment color="primary" />}
+          icon={<Assessment />}
         />
         <DistributionCard 
           title="Server Type Distribution"
           data={stats.servers_by_type}
-          icon={<Storage color="primary" />}
+          icon={<Storage />}
         />
         <DistributionCard 
           title="Authentication Methods"
           data={stats.auth_methods_count}
-          icon={<Security color="primary" />}
+          icon={<Security />}
         />
       </Box>
 
       {/* Gateway Information */}
-      <Card>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Gateway Information
-          </Typography>
-          <Box sx={{ 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            gap: 2,
-            '& > *': { flex: '1 1 200px', minWidth: '200px' }
-          }}>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                Gateway Name
-              </Typography>
-              <Typography variant="h6">
-                {info.name}
-              </Typography>
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                Gateway Version
-              </Typography>
-              <Typography variant="h6">
-                {info.version}
-              </Typography>
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                System Uptime
-              </Typography>
-              <Typography variant="h6">
-                {stats.system_uptime || '-'}
-              </Typography>
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                Last Database Update
-              </Typography>
-              <Typography variant="h6">
-                {formatTimestamp(stats.last_database_update) || 'Never'}
-              </Typography>
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                Last Updated
-              </Typography>
-              <Typography variant="h6">
-                {lastUpdated ? lastUpdated.toLocaleString() : '-'}
-              </Typography>
-            </Box>
+      <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>
+        Gateway Information
+      </Typography>
+      <Paper elevation={2} sx={{ p: 3 }}>
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
+          gap: 3
+        }}>
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+              Gateway Name
+            </Typography>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              {info.name}
+            </Typography>
           </Box>
-        </CardContent>
-      </Card>
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+              Gateway Version
+            </Typography>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              {info.version}
+            </Typography>
+          </Box>
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+              System Uptime
+            </Typography>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              {stats.system_uptime || '-'}
+            </Typography>
+          </Box>
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+              Last Database Update
+            </Typography>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              {formatTimestamp(stats.last_database_update) || 'Never'}
+            </Typography>
+          </Box>
+        </Box>
+      </Paper>
     </Box>
   );
 };

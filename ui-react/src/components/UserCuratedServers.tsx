@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -48,23 +48,7 @@ export const UserCuratedServers: React.FC = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const { token } = useAuth();
 
-  useEffect(() => {
-    fetchCuratedServers();
-  }, []);
-
-  useEffect(() => {
-    // Filter servers based on search term
-    if (searchTerm.trim() === '') {
-      setFilteredServers(servers);
-    } else {
-      const filtered = servers.filter(server =>
-        server.name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      setFilteredServers(filtered);
-    }
-  }, [searchTerm, servers]);
-
-  const fetchCuratedServers = async () => {
+  const fetchCuratedServers = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -88,7 +72,23 @@ export const UserCuratedServers: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    fetchCuratedServers();
+  }, [fetchCuratedServers]);
+
+  useEffect(() => {
+    // Filter servers based on search term
+    if (searchTerm.trim() === '') {
+      setFilteredServers(servers);
+    } else {
+      const filtered = servers.filter(server =>
+        server.name.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setFilteredServers(filtered);
+    }
+  }, [searchTerm, servers]);
 
   const generateMCPConfig = (server: CuratedServer): string => {
     let serverConfig: any = {};

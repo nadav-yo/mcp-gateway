@@ -1,24 +1,13 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
 import { CssBaseline, Box, CircularProgress } from '@mui/material';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { LoginPage } from './components/LoginPage';
 import { UserPage } from './components/UserPage';
 import { AdminPage } from './components/AdminPage';
 import './App.css';
-
-const theme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#dc004e',
-    },
-  },
-});
 
 const AppContent: React.FC = () => {
   const { user, isLoading, logout } = useAuth();
@@ -93,12 +82,22 @@ const AppContent: React.FC = () => {
   );
 };
 
+const AppWithTheme: React.FC = () => {
+  const { theme } = useTheme();
+  
+  return (
+    <MuiThemeProvider theme={theme}>
+      <CssBaseline />
+      <AppContent />
+    </MuiThemeProvider>
+  );
+};
+
 function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <ThemeProvider>
       <AuthProvider>
-        <AppContent />
+        <AppWithTheme />
       </AuthProvider>
     </ThemeProvider>
   );

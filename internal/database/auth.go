@@ -1,16 +1,23 @@
 package database
 
 import (
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/nadav-yo/mcp-gateway/internal/logger"
+)
+
+// Global token usage queue for background processing
+var (
+	tokenUsageQueue = make(chan string, 1000) // Buffer for 1000 tokens
+	tokenWorkerOnce sync.Once
+	tokenWorkerDB   *DB
 )
 
 // UserRecord represents a user record in the database
@@ -367,27 +374,15 @@ func (db *DB) ValidateToken(token string) (*TokenRecord, error) {
 	}
 
 	// Update last_used timestamp asynchronously to avoid blocking validation
-	// Only update if more than 1 minute has passed since last update to reduce writes
-	if tokenRecord.LastUsed == nil || time.Since(*tokenRecord.LastUsed) > time.Minute {
-		go func() {
-			// Use a separate goroutine with retry logic for last_used updates
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			err := db.retryOnBusy(func() error {
-				query := `UPDATE tokens SET last_used = CURRENT_TIMESTAMP WHERE token = ?`
-				_, err := db.conn.ExecContext(ctx, query, token)
-				return err
-			}, 3)
-
-			if err != nil {
-				db_logger := logger.GetLoggerWithContext(map[string]interface{}{
-					"error": err,
-					"token": token[:8] + "...",
-				})
-				db_logger.Error().Err(err).Msg("Failed to update token last_used timestamp after retries")
-			}
-		}()
+	// Only update if more than 5 minutes has passed since last update to reduce writes
+	if tokenRecord.LastUsed == nil || time.Since(*tokenRecord.LastUsed) > 5*time.Minute {
+		// Use a non-blocking channel send to avoid blocking the validation
+		select {
+		case tokenUsageQueue <- token:
+			// Successfully queued for background processing
+		default:
+			// Queue is full, skip this update (non-critical)
+		}
 	}
 
 	return tokenRecord, nil
@@ -474,32 +469,89 @@ func (db *DB) usernameExistsExcludingID(username string, excludeID int64) (bool,
 	return exists, nil
 }
 
-// UpdateTokenLastUsed updates the last_used timestamp for a token
-// This function is designed to be called asynchronously and handles conflicts gracefully
-func (db *DB) UpdateTokenLastUsed(token string) error {
-	// Use a more conservative approach with longer intervals and better conflict handling
-	err := db.retryOnBusy(func() error {
-		// Only update if the last_used is NULL or older than 5 minutes
-		// This prevents unnecessary updates and reduces conflicts
-		query := `
-		UPDATE tokens 
-		SET last_used = CURRENT_TIMESTAMP 
-		WHERE token = ? 
-		AND (last_used IS NULL OR last_used < datetime('now', '-5 minutes'))
-		`
-		_, err := db.conn.Exec(query, token)
-		return err
-	}, 2)
+// startTokenUsageWorker starts the background worker for processing token usage updates
+func startTokenUsageWorker(db *DB) {
+	tokenWorkerOnce.Do(func() {
+		tokenWorkerDB = db
+		go func() {
+			ticker := time.NewTicker(10 * time.Second) // Process every 10 seconds
+			defer ticker.Stop()
 
-	if err != nil {
-		// Log at debug level since this is not critical for token validation
-		db_logger := logger.GetLoggerWithContext(map[string]interface{}{
-			"error": err,
-			"token": token[:8] + "...",
-		})
-		db_logger.Debug().Err(err).Msg("Failed to update token last_used timestamp (non-critical)")
-		return err
+			var tokens []string
+			for {
+				select {
+				case token := <-tokenUsageQueue:
+					tokens = append(tokens, token)
+					// Process in batches of up to 50 tokens
+					if len(tokens) >= 50 {
+						processTokenUsageBatch(tokens)
+						tokens = tokens[:0] // Reset slice
+					}
+				case <-ticker.C:
+					// Process any remaining tokens
+					if len(tokens) > 0 {
+						processTokenUsageBatch(tokens)
+						tokens = tokens[:0] // Reset slice
+					}
+				}
+			}
+		}()
+	})
+}
+
+// processTokenUsageBatch processes a batch of token usage updates
+func processTokenUsageBatch(tokens []string) {
+	if len(tokens) == 0 {
+		return
 	}
 
-	return nil
+	// Use a separate database connection for batch updates
+	err := tokenWorkerDB.retryOnBusy(func() error {
+		// Start a transaction for batch update
+		tx, err := tokenWorkerDB.conn.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		defer tx.Rollback() // Will be ignored if committed
+
+		// Prepare the update statement
+		stmt, err := tx.Prepare(`
+			UPDATE tokens 
+			SET last_used = CURRENT_TIMESTAMP 
+			WHERE token = ? 
+			AND (last_used IS NULL OR last_used < datetime('now', '-5 minutes'))
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer stmt.Close()
+
+		// Execute updates for each token
+		for _, token := range tokens {
+			_, err := stmt.Exec(token)
+			if err != nil {
+				// Log error but continue with other tokens
+				db_logger := logger.GetLoggerWithContext(map[string]interface{}{
+					"error": err,
+					"token": token[:8] + "...",
+				})
+				db_logger.Debug().Err(err).Msg("Failed to update token last_used in batch")
+			}
+		}
+
+		// Commit the transaction
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		return nil
+	}, 3)
+
+	if err != nil {
+		db_logger := logger.GetLoggerWithContext(map[string]interface{}{
+			"error":  err,
+			"tokens": len(tokens),
+		})
+		db_logger.Debug().Err(err).Msg("Failed to process token usage batch")
+	}
 }

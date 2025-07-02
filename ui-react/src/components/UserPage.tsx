@@ -17,6 +17,7 @@ import {
 import { UserInfo } from './UserInfo';
 import { TokenManagement } from './TokenManagement';
 import { UserCuratedServers } from './UserCuratedServers';
+import { DarkModeToggle } from './DarkModeToggle';
 
 interface UserPageProps {
   onLogout: () => void;
@@ -46,6 +47,7 @@ export const UserPage: React.FC<UserPageProps> = ({ onLogout }) => {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             MCP Gateway - User Dashboard
           </Typography>
+          <DarkModeToggle />
           <Button
             color="inherit"
             startIcon={<Logout />}

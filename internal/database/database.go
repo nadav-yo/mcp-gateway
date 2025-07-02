@@ -56,6 +56,9 @@ func New(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
+	// Start the token usage worker for background processing
+	startTokenUsageWorker(db)
+
 	return db, nil
 }
 

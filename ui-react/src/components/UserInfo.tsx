@@ -1,25 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Card,
   CardContent,
   Typography,
   Box,
   Chip,
-  CircularProgress,
   Alert,
   Button,
-  CardActions,
 } from '@mui/material';
 import { Person, AdminPanelSettings, Lock } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { ChangePassword } from './ChangePassword';
-
-interface User {
-  id: number;
-  username: string;
-  is_admin: boolean;
-  is_active: boolean;
-}
 
 export const UserInfo: React.FC = () => {
   const { user } = useAuth();
@@ -47,11 +38,21 @@ export const UserInfo: React.FC = () => {
     <>
       <Card>
       <CardContent>
-        <Box display="flex" alignItems="center" mb={2}>
-          <Person sx={{ mr: 1, color: 'primary.main' }} />
-          <Typography variant="h6" component="h2">
-            User Information
-          </Typography>
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+          <Box display="flex" alignItems="center">
+            <Person sx={{ mr: 1, color: 'primary.main' }} />
+            <Typography variant="h6" component="h2">
+              User Information
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            startIcon={<Lock />}
+            onClick={handleChangePasswordClick}
+            size="small"
+          >
+            Change Password
+          </Button>
         </Box>
         
         {user && (
@@ -96,16 +97,6 @@ export const UserInfo: React.FC = () => {
           </Box>
         )}
       </CardContent>
-      <CardActions>
-        <Button
-          variant="outlined"
-          startIcon={<Lock />}
-          onClick={handleChangePasswordClick}
-          size="small"
-        >
-          Change Password
-        </Button>
-      </CardActions>
     </Card>
 
     {/* Change Password Modal */}

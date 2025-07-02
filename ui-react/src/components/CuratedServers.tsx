@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -85,23 +85,7 @@ export const CuratedServers: React.FC<CuratedServersProps> = ({ adminMode = fals
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const { token } = useAuth();
 
-  useEffect(() => {
-    fetchCuratedServers();
-  }, []);
-
-  useEffect(() => {
-    // Filter servers based on search term
-    if (searchTerm.trim() === '') {
-      setFilteredServers(servers);
-    } else {
-      const filtered = servers.filter(server =>
-        server.name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      setFilteredServers(filtered);
-    }
-  }, [searchTerm, servers]);
-
-  const fetchCuratedServers = async () => {
+  const fetchCuratedServers = useCallback(async () => {
     try {
       const endpoint = adminMode ? '/api/curated-servers' : '/gateway/curated-servers';
       const headers: HeadersInit = {};
@@ -125,7 +109,23 @@ export const CuratedServers: React.FC<CuratedServersProps> = ({ adminMode = fals
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminMode, token]);
+
+  useEffect(() => {
+    fetchCuratedServers();
+  }, [fetchCuratedServers]);
+
+  useEffect(() => {
+    // Filter servers based on search term
+    if (searchTerm.trim() === '') {
+      setFilteredServers(servers);
+    } else {
+      const filtered = servers.filter(server =>
+        server.name.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setFilteredServers(filtered);
+    }
+  }, [searchTerm, servers]);
 
   const handleOpenDialog = (server?: CuratedServer) => {
     if (server) {
