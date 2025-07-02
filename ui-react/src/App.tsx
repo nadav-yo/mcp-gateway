@@ -28,7 +28,7 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <Router basename="/react">
+    <Router basename="/ui">
       <Routes>
         <Route
           path="/login"

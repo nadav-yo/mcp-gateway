@@ -403,7 +403,7 @@ func (s *Server) handleCuratedServers(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info().
 		Int("server_count", len(apiServers)).
 		Str("remote_addr", r.RemoteAddr).
-		Msg("Served curated servers list from database")
+		Msg("Served curated servers list")
 
 	json.NewEncoder(w).Encode(response)
 }

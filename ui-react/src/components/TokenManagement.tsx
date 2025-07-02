@@ -61,7 +61,6 @@ export const TokenManagement: React.FC = () => {
       const response = await makeAuthenticatedRequest('/api/auth/tokens');
       if (response.ok) {
         const data = await response.json();
-        console.log('Token data from API:', data); // Debug log
         setTokens(data || []);
       } else {
         setError('Failed to load tokens');

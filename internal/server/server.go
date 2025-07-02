@@ -27,13 +27,6 @@ const (
 	UIAdminPath          = "/ui/admin"
 	UILoginPath          = "/ui/login"
 	UIUserPath           = "/ui/user"
-	UIChangePasswordPath = "/ui/change-password"
-
-	// React UI paths
-	ReactUIPath    = "/react"
-	ReactLoginPath = "/react/login"
-	ReactAdminPath = "/react/admin"
-	ReactUserPath  = "/react/user"
 
 	// API paths
 	MCPPath      = "/mcp"
@@ -49,10 +42,7 @@ const (
 	LogsPath     = "/api/logs/{filename}"
 
 	// File paths
-	WebDir             = "web/"
 	ReactUIDir         = "ui-react/build/"
-	LoginHTMLFile      = "web/login.html"
-	ChangePassHTMLFile = "web/change-password.html"
 
 	// Token constants
 	TokenCookieName = "mcp_token"
@@ -285,134 +275,26 @@ func (s *Server) registerAdminRoutes(router *mux.Router) {
 
 // registerCommonRoutes registers routes available to all users
 func (s *Server) registerCommonRoutes(r *mux.Router) {
-	// Web UI routes
-	r.HandleFunc(UIPath, s.handleUI).Methods("GET")
-	r.HandleFunc(UILoginPath, s.handleLoginPage).Methods("GET")
-	r.HandleFunc(UIChangePasswordPath, s.handleChangePasswordPage).Methods("GET")
-	r.HandleFunc(UIAdminPath, s.handleAdminPage).Methods("GET")
-	r.HandleFunc(UIUserPath, s.handleUserPage).Methods("GET")
+
 
 	// React UI routes
-	r.HandleFunc(ReactLoginPath, s.handleReactLogin).Methods("GET")
-	r.HandleFunc(ReactAdminPath, s.handleReactAdmin).Methods("GET")
-	r.HandleFunc(ReactUserPath, s.handleReactUser).Methods("GET")
-	r.PathPrefix(ReactUIPath).HandlerFunc(s.handleReactUI).Methods("GET")
+	r.HandleFunc(UILoginPath, s.handleReactLogin).Methods("GET")
+	r.HandleFunc(UIAdminPath, s.handleReactAdmin).Methods("GET")
+	r.HandleFunc(UIUserPath, s.handleReactUser).Methods("GET")
+	r.PathPrefix(UIPath).HandlerFunc(s.handleReactUI).Methods("GET")
 
 	// API health/info routes
 	r.HandleFunc(HealthPath, s.handleHealth).Methods("GET")
 	r.HandleFunc(InfoPath, s.handleInfo).Methods("GET")
 
-	// Static file serving for CSS, JS, and HTML files
-	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(WebDir))))
-
 	// Register public read-only curated server routes for all users
 	s.curatedHandler.RegisterPublicRoutes(r)
 }
 
-// handleUI handles requests to the /ui path - redirects to appropriate page
-func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
-	if s.config.Security.EnableAuth {
-		// Check if user is authenticated
-		if s.isAuthenticated(r) {
-			// Authenticated - check if user is admin
-			if s.isUserAdmin(r) {
-				// Admin user - redirect to admin panel
-				http.Redirect(w, r, UIAdminPath, http.StatusFound)
-			} else {
-				// Regular user - redirect to user page
-				http.Redirect(w, r, UIUserPath, http.StatusFound)
-			}
-		} else {
-			// Not authenticated - redirect to login
-			http.Redirect(w, r, UILoginPath, http.StatusFound)
-		}
-	} else {
-		// No auth required - go straight to admin
-		http.Redirect(w, r, UIAdminPath, http.StatusFound)
-	}
-}
-
-// handleLoginPage serves the login page
-func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	if s.config.Security.EnableAuth {
-		// Check if already authenticated
-		if s.isAuthenticated(r) {
-			// Already logged in - redirect to appropriate page based on role
-			if s.isUserAdmin(r) {
-				http.Redirect(w, r, UIAdminPath, http.StatusFound)
-			} else {
-				http.Redirect(w, r, UIUserPath, http.StatusFound)
-			}
-			return
-		}
-		// Serve standalone login page
-		s.serveHTMLWithAuth(w, LoginHTMLFile)
-	} else {
-		// Auth disabled - redirect to admin
-		http.Redirect(w, r, UIAdminPath, http.StatusFound)
-	}
-}
-
-// handleChangePasswordPage serves the change password page
-func (s *Server) handleChangePasswordPage(w http.ResponseWriter, r *http.Request) {
-	if !s.config.Security.EnableAuth {
-		// Auth disabled - redirect to admin
-		http.Redirect(w, r, UIAdminPath, http.StatusFound)
-		return
-	}
-
-	// Check authentication
-	if !s.isAuthenticated(r) {
-		// Not authenticated - redirect to login
-		http.Redirect(w, r, UILoginPath, http.StatusFound)
-		return
-	}
-
-	// Serve change password page with auth status injected
-	s.serveHTMLWithAuth(w, ChangePassHTMLFile)
-}
-
-// handleAdminPage serves the admin panel (protected route for admins only)
-func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
-	if s.config.Security.EnableAuth {
-		// Check authentication
-		if !s.isAuthenticated(r) {
-			// Not authenticated - redirect to login
-			http.Redirect(w, r, UILoginPath, http.StatusFound)
-			return
-		}
-
-		// Check if user is admin
-		if !s.isUserAdmin(r) {
-			// Authenticated but not admin - redirect to user page
-			http.Redirect(w, r, UIUserPath, http.StatusFound)
-			return
-		}
-	}
-
-	// Serve admin panel with auth status injected
-	s.serveHTMLWithAuth(w, "web/admin.html")
-}
-
-// handleUserPage serves the user page (protected route for authenticated users)
-func (s *Server) handleUserPage(w http.ResponseWriter, r *http.Request) {
-	if s.config.Security.EnableAuth {
-		// Check authentication
-		if !s.isAuthenticated(r) {
-			// Not authenticated - redirect to login
-			http.Redirect(w, r, UILoginPath, http.StatusFound)
-			return
-		}
-	}
-
-	// Serve user page with auth status injected
-	s.serveHTMLWithAuth(w, "web/user.html")
-}
-
-// handleReactUI handles requests to the /react path - serves React UI with routing
+// handleReactUI handles requests to the /ui path - serves React UI with routing
 func (s *Server) handleReactUI(w http.ResponseWriter, r *http.Request) {
-	// Remove the /react prefix to get the React route
-	path := strings.TrimPrefix(r.URL.Path, ReactUIPath)
+	// Remove the /ui prefix to get the React route
+	path := strings.TrimPrefix(r.URL.Path, UIPath)
 	if path == "" || path == "/" {
 		path = "/index.html"
 	}
@@ -422,6 +304,7 @@ func (s *Server) handleReactUI(w http.ResponseWriter, r *http.Request) {
 		strings.HasSuffix(path, ".css") ||
 		strings.HasSuffix(path, ".js") ||
 		strings.HasSuffix(path, ".map") ||
+		strings.HasSuffix(path, ".json") ||
 		strings.HasSuffix(path, ".ico") ||
 		strings.HasSuffix(path, ".png") ||
 		strings.HasSuffix(path, ".jpg") ||
@@ -446,7 +329,7 @@ func (s *Server) handleReactUI(w http.ResponseWriter, r *http.Request) {
 	// Check authentication only for non-static assets
 	if !isStaticAsset && s.config.Security.EnableAuth && !s.isAuthenticated(r) {
 		// Not authenticated - redirect to React login
-		http.Redirect(w, r, ReactLoginPath, http.StatusFound)
+		http.Redirect(w, r, UILoginPath, http.StatusFound)
 		return
 	}
 
@@ -462,6 +345,11 @@ func (s *Server) handleReactUI(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "image/svg+xml")
 		}
 	}
+	
+	// Also set content type for manifest.json and other JSON files even if not in static assets check
+	if strings.HasSuffix(path, ".json") {
+		w.Header().Set("Content-Type", "application/json")
+	}
 
 	// Serve the file
 	http.ServeFile(w, r, filePath)
@@ -474,15 +362,15 @@ func (s *Server) handleReactLogin(w http.ResponseWriter, r *http.Request) {
 		if s.isAuthenticated(r) {
 			// Already logged in - redirect to appropriate page based on role
 			if s.isUserAdmin(r) {
-				http.Redirect(w, r, ReactAdminPath, http.StatusFound)
+				http.Redirect(w, r, UIAdminPath, http.StatusFound)
 			} else {
-				http.Redirect(w, r, ReactUserPath, http.StatusFound)
+				http.Redirect(w, r, UIUserPath, http.StatusFound)
 			}
 			return
 		}
 	} else {
 		// Auth disabled - redirect to React admin
-		http.Redirect(w, r, ReactAdminPath, http.StatusFound)
+		http.Redirect(w, r, UIAdminPath, http.StatusFound)
 		return
 	}
 
@@ -496,14 +384,14 @@ func (s *Server) handleReactAdmin(w http.ResponseWriter, r *http.Request) {
 		// Check authentication
 		if !s.isAuthenticated(r) {
 			// Not authenticated - redirect to React login
-			http.Redirect(w, r, ReactLoginPath, http.StatusFound)
+			http.Redirect(w, r, UILoginPath, http.StatusFound)
 			return
 		}
 
 		// Check if user is admin
 		if !s.isUserAdmin(r) {
 			// Authenticated but not admin - redirect to React user page
-			http.Redirect(w, r, ReactUserPath, http.StatusFound)
+			http.Redirect(w, r, UIUserPath, http.StatusFound)
 			return
 		}
 	}
@@ -518,7 +406,7 @@ func (s *Server) handleReactUser(w http.ResponseWriter, r *http.Request) {
 		// Check authentication
 		if !s.isAuthenticated(r) {
 			// Not authenticated - redirect to React login
-			http.Redirect(w, r, ReactLoginPath, http.StatusFound)
+			http.Redirect(w, r, UILoginPath, http.StatusFound)
 			return
 		}
 	}

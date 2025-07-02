@@ -121,6 +121,7 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [levelFilter, setLevelFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'structured' | 'raw'>('structured');
+  const [serverListSearch, setServerListSearch] = useState<string>('');
   
   const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const logContentRef = useRef<HTMLDivElement>(null);
@@ -271,7 +272,7 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
     } finally {
       setLoading(false);
     }
-  }, [token, tailEnabled, searchTerm, levelFilter]);
+  }, [token, tailEnabled, levelFilter, searchTerm]);
 
   // Load server log content
   const loadServerLog = useCallback(async (serverId: number, serverName: string) => {
@@ -335,7 +336,7 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
     } finally {
       setLoading(false);
     }
-  }, [token, tailEnabled, searchTerm, levelFilter]);
+  }, [token, tailEnabled, levelFilter, searchTerm]);
 
   // Refresh current log
   const refreshCurrentLog = useCallback(() => {
@@ -447,6 +448,18 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
       return matchesSearch && matchesLevel;
     });
   }, [parsedLogs, searchTerm, levelFilter]);
+
+  // Filter server logs based on search
+  const filteredServerLogs = useMemo(() => {
+    return serverLogs.filter(log => {
+      const matchesSearch = !serverListSearch || 
+        log.server_name.toLowerCase().includes(serverListSearch.toLowerCase()) ||
+        log.server_id.toString().includes(serverListSearch) ||
+        log.filename.toLowerCase().includes(serverListSearch.toLowerCase());
+      
+      return matchesSearch;
+    });
+  }, [serverLogs, serverListSearch]);
 
   // Get log level color
   const getLogLevelColor = (level: string) => {
@@ -578,6 +591,23 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
               Available Server Logs
             </Typography>
             
+            {/* Server Search */}
+            <TextField
+              size="small"
+              placeholder="Search servers..."
+              value={serverListSearch}
+              onChange={(e) => setServerListSearch(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ mb: 2 }}
+              fullWidth
+            />
+            
             {logsListLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
                 <CircularProgress size={24} />
@@ -586,13 +616,13 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
               <Alert severity="error" sx={{ mt: 1 }}>
                 Error loading logs: {error}
               </Alert>
-            ) : serverLogs.length === 0 ? (
+            ) : filteredServerLogs.length === 0 ? (
               <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', py: 2 }}>
-                No server log files found
+                {serverLogs.length === 0 ? 'No server log files found' : 'No servers match your search'}
               </Typography>
             ) : (
               <List dense sx={{ flex: 1, overflow: 'auto' }}>
-                {serverLogs.map((log) => (
+                {filteredServerLogs.map((log) => (
                   <ListItem key={`${log.server_id}-${log.filename}`} disablePadding>
                     <ListItemButton
                       selected={currentLogType === 'server' && currentLogServerId === log.server_id}
