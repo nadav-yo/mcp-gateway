@@ -3,8 +3,8 @@ package logger
 import (
 	"path/filepath"
 
-	"github.com/rs/zerolog"
 	"github.com/nadav-yo/mcp-gateway/pkg/config"
+	"github.com/rs/zerolog"
 )
 
 var auditLogger zerolog.Logger

@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/natefinch/lumberjack.v2"
 	"github.com/nadav-yo/mcp-gateway/pkg/config"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // GetRotatingWriter returns an io.Writer with log rotation capabilities
@@ -30,10 +30,10 @@ func GetRotatingWriter(logFilePath string, config *config.LogRotationConfig) (io
 	// Use lumberjack for rotating logs
 	rotatingWriter := &lumberjack.Logger{
 		Filename:   logFilePath,
-		MaxSize:    config.MaxSizeMB,    // megabytes
-		MaxBackups: config.MaxBackups,   // number of backups
-		MaxAge:     config.MaxAgeDays,   // days
-		Compress:   config.Compress,     // compress with gzip
+		MaxSize:    config.MaxSizeMB,  // megabytes
+		MaxBackups: config.MaxBackups, // number of backups
+		MaxAge:     config.MaxAgeDays, // days
+		Compress:   config.Compress,   // compress with gzip
 	}
 
 	return rotatingWriter, nil

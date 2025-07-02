@@ -159,7 +159,7 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 		go func() {
 			if err := h.server.ConnectUpstreamServer(created.ID); err != nil {
 				// Log to server-specific log file
-				logger.GetServerLogger().LogServerEvent(created.ID, "error", "Failed to connect to newly created upstream server", map[string]interface{}{
+				logger.GetServerLogger().LogServerEvent(created.ID, "error", "Failed to connect to newly created upstream server", map[string]any{
 					"error":       err.Error(),
 					"server_name": created.Name,
 				})
@@ -215,7 +215,7 @@ func (h *UpstreamHandler) ListUpstreamServers(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	h.writeSuccessResponse(w, http.StatusOK, "", map[string]interface{}{
+	h.writeSuccessResponse(w, http.StatusOK, "", map[string]any{
 		"servers": servers,
 		"count":   len(servers),
 	})
@@ -355,7 +355,7 @@ func (h *UpstreamHandler) DeleteUpstreamServer(w http.ResponseWriter, r *http.Re
 	// First disconnect the server if it's currently connected
 	if err := h.server.DisconnectUpstreamServer(id); err != nil {
 		// Log to server-specific log file
-		logger.GetServerLogger().LogServerEvent(id, "error", "Failed to disconnect upstream server during deletion, continuing with database deletion", map[string]interface{}{
+		logger.GetServerLogger().LogServerEvent(id, "error", "Failed to disconnect upstream server during deletion, continuing with database deletion", map[string]any{
 			"error": err.Error(),
 		})
 		// Continue with deletion even if disconnect fails
@@ -416,14 +416,14 @@ func (h *UpstreamHandler) ToggleUpstreamServer(w http.ResponseWriter, r *http.Re
 	// If server is being disabled, disconnect it
 	if !updated.Enabled {
 		// Log that the server has been disabled
-		logger.GetServerLogger().LogServerEvent(id, "info", "Server has been disabled", map[string]interface{}{
+		logger.GetServerLogger().LogServerEvent(id, "info", "Server has been disabled", map[string]any{
 			"server_name": updated.Name,
 		})
 
 		go func() {
 			if err := h.server.DisconnectUpstreamServer(id); err != nil {
 				// Log to server-specific log file
-				logger.GetServerLogger().LogServerEvent(id, "error", "Failed to disconnect upstream server when disabling", map[string]interface{}{
+				logger.GetServerLogger().LogServerEvent(id, "error", "Failed to disconnect upstream server when disabling", map[string]any{
 					"error":       err.Error(),
 					"server_name": updated.Name,
 				})
@@ -434,7 +434,7 @@ func (h *UpstreamHandler) ToggleUpstreamServer(w http.ResponseWriter, r *http.Re
 		go func() {
 			if err := h.server.ConnectUpstreamServer(id); err != nil {
 				// Log to server-specific log file
-				logger.GetServerLogger().LogServerEvent(id, "error", "Failed to connect to upstream server when enabling", map[string]interface{}{
+				logger.GetServerLogger().LogServerEvent(id, "error", "Failed to connect to upstream server when enabling", map[string]any{
 					"error":       err.Error(),
 					"server_name": updated.Name,
 				})
@@ -526,7 +526,7 @@ func (h *UpstreamHandler) GetServerLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.writeSuccessResponse(w, http.StatusOK, "", map[string]interface{}{
+	h.writeSuccessResponse(w, http.StatusOK, "", map[string]any{
 		"content": string(content),
 		"path":    logPath,
 		"size":    len(content),
@@ -542,7 +542,7 @@ func (h *UpstreamHandler) ListServerLogs(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Get file information for each log
-	var logs []map[string]interface{}
+	var logs []map[string]any
 	for _, logFile := range logFiles {
 		logPath := filepath.Join("logs", logFile)
 		if info, err := os.Stat(logPath); err == nil {
@@ -550,7 +550,7 @@ func (h *UpstreamHandler) ListServerLogs(w http.ResponseWriter, r *http.Request)
 			var serverID int64
 			if n, err := fmt.Sscanf(logFile, "server-%d.log", &serverID); n == 1 && err == nil {
 				if server, err := h.db.GetUpstreamServer(serverID); err == nil {
-					logs = append(logs, map[string]interface{}{
+					logs = append(logs, map[string]any{
 						"filename":    logFile,
 						"server_id":   serverID,
 						"server_name": server.Name,
@@ -562,7 +562,7 @@ func (h *UpstreamHandler) ListServerLogs(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	h.writeSuccessResponse(w, http.StatusOK, "", map[string]interface{}{
+	h.writeSuccessResponse(w, http.StatusOK, "", map[string]any{
 		"logs":  logs,
 		"count": len(logs),
 	})

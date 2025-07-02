@@ -16,6 +16,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+const userContextKey contextKey = "user"
+
 // AuthHandler handles authentication-related HTTP requests
 type AuthHandler struct {
 	db     *database.DB
@@ -140,7 +145,7 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 // HandleCreateToken handles requests to create new tokens
 func (h *AuthHandler) HandleCreateToken(w http.ResponseWriter, r *http.Request) {
 	// Get user from context (set by auth middleware)
-	user, ok := r.Context().Value("user").(*database.TokenRecord)
+	user, ok := r.Context().Value(userContextKey).(*database.TokenRecord)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -175,7 +180,7 @@ func (h *AuthHandler) HandleCreateToken(w http.ResponseWriter, r *http.Request) 
 // HandleListTokens handles requests to list user tokens
 func (h *AuthHandler) HandleListTokens(w http.ResponseWriter, r *http.Request) {
 	// Get user from context (set by auth middleware)
-	user, ok := r.Context().Value("user").(*database.TokenRecord)
+	user, ok := r.Context().Value(userContextKey).(*database.TokenRecord)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -212,7 +217,7 @@ func (h *AuthHandler) HandleListTokens(w http.ResponseWriter, r *http.Request) {
 // HandleRevokeToken handles requests to revoke tokens
 func (h *AuthHandler) HandleRevokeToken(w http.ResponseWriter, r *http.Request) {
 	// Get user from context (set by auth middleware)
-	user, ok := r.Context().Value("user").(*database.TokenRecord)
+	user, ok := r.Context().Value(userContextKey).(*database.TokenRecord)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -288,7 +293,7 @@ func (h *AuthHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	logger.GetAuditLogger().Info().Str("username", user.Username).Bool("is_admin", user.IsAdmin).Msg("User created successfully")
 
 	// Audit log for user creation
-	if adminToken, ok := r.Context().Value("user").(*database.TokenRecord); ok {
+	if adminToken, ok := r.Context().Value(userContextKey).(*database.TokenRecord); ok {
 		logger.GetAuditLogger().Info().
 			Str("admin_username", adminToken.Username).
 			Str("action", "user_created").
@@ -364,7 +369,7 @@ func (h *AuthHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the current user to prevent them from removing their own admin privileges
-	currentUser, ok := r.Context().Value("user").(*database.TokenRecord)
+	currentUser, ok := r.Context().Value(userContextKey).(*database.TokenRecord)
 	if !ok {
 		http.Error(w, "User context not found", http.StatusInternalServerError)
 		return
@@ -451,7 +456,7 @@ func (h *AuthHandler) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the current user to prevent them from deleting themselves
-	currentUser, ok := r.Context().Value("user").(*database.TokenRecord)
+	currentUser, ok := r.Context().Value(userContextKey).(*database.TokenRecord)
 	if !ok {
 		http.Error(w, "User context not found", http.StatusInternalServerError)
 		return
@@ -480,7 +485,7 @@ func (h *AuthHandler) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 
 	// Audit log for user deletion
-	if adminToken, ok := r.Context().Value("user").(*database.TokenRecord); ok {
+	if adminToken, ok := r.Context().Value(userContextKey).(*database.TokenRecord); ok {
 		logger.GetAuditLogger().Info().
 			Str("admin_username", adminToken.Username).
 			Str("action", "user_deleted").
@@ -493,7 +498,7 @@ func (h *AuthHandler) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 // HandleLogout handles user logout requests - revokes the current session token
 func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	// Get user from context (set by auth middleware)
-	user, ok := r.Context().Value("user").(*database.TokenRecord)
+	user, ok := r.Context().Value(userContextKey).(*database.TokenRecord)
 	if !ok {
 		// Already logged out or invalid token
 		w.WriteHeader(http.StatusNoContent)
@@ -532,13 +537,13 @@ func (h *AuthHandler) AuthMiddleware(next http.Handler) http.Handler {
 		// Validate token
 		tokenRecord, err := h.db.ValidateToken(token)
 		if err != nil {
-			h.logger.Warn().Err(err).Str("token", token[:8]+"...").Msg("Token validation failed")
+			h.logger.Debug().Err(err).Str("token", token[:8]+"...").Msg("Token validation failed")
 			http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
 			return
 		}
 
 		// Add user info to request context
-		ctx := context.WithValue(r.Context(), "user", tokenRecord)
+		ctx := context.WithValue(r.Context(), userContextKey, tokenRecord)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -549,7 +554,7 @@ func (h *AuthHandler) AdminMiddleware(next http.Handler) http.Handler {
 		// First check authentication
 		h.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get user from context (set by AuthMiddleware)
-			tokenRecord, ok := r.Context().Value("user").(*database.TokenRecord)
+			tokenRecord, ok := r.Context().Value(userContextKey).(*database.TokenRecord)
 			if !ok {
 				http.Error(w, "User context not found", http.StatusInternalServerError)
 				return
@@ -617,7 +622,7 @@ func (h *AuthHandler) RegisterAdminRoutes(router *mux.Router) {
 // HandleMe returns information about the currently authenticated user
 func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 	// Get token record from context (set by AuthMiddleware)
-	tokenRecord, ok := r.Context().Value("user").(*database.TokenRecord)
+	tokenRecord, ok := r.Context().Value(userContextKey).(*database.TokenRecord)
 	if !ok {
 		http.Error(w, "User context not found", http.StatusInternalServerError)
 		return
@@ -671,7 +676,7 @@ func (h *AuthHandler) HandleChangePassword(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Get current user from context
-	currentUser, ok := r.Context().Value("user").(*database.TokenRecord)
+	currentUser, ok := r.Context().Value(userContextKey).(*database.TokenRecord)
 	if !ok {
 		http.Error(w, "User context not found", http.StatusInternalServerError)
 		return

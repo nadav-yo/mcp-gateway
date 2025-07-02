@@ -14,13 +14,19 @@ import {
   Logout,
   Dashboard,
   People,
-  Settings,
   Storage,
+  Assessment,
+  Description,
+  Router,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { UserInfo } from './UserInfo';
 import { TokenManagement } from './TokenManagement';
 import { CuratedServers } from './CuratedServers';
+import { UserManagement } from './UserManagement';
+import { Statistics } from './Statistics';
+import { Logs } from './Logs';
+import { UpstreamServers } from './UpstreamServers';
 
 interface AdminPageProps {
   onLogout: () => void;
@@ -54,6 +60,8 @@ function TabPanel(props: TabPanelProps) {
 
 export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   const [tabValue, setTabValue] = useState(0);
+  const [selectedLogServerId, setSelectedLogServerId] = useState<number | undefined>(undefined);
+  const [selectedLogServerName, setSelectedLogServerName] = useState<string | undefined>(undefined);
   const { logout } = useAuth();
 
   const handleLogout = async () => {
@@ -62,7 +70,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   };
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    // Clear selected server information when manually switching tabs
+    setSelectedLogServerId(undefined);
+    setSelectedLogServerName(undefined);
     setTabValue(newValue);
+  };
+
+  const handleTabChangeFromUpstreamServers = (tabIndex: number, serverId?: number, serverName?: string) => {
+    // Set the selected server information for the Logs component
+    setSelectedLogServerId(serverId);
+    setSelectedLogServerName(serverName);
+    // Switch to the specified tab
+    setTabValue(tabIndex);
   };
 
   return (
@@ -97,8 +116,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
                 aria-controls="admin-tabpanel-0"
               />
               <Tab
-                icon={<People />}
-                label="Users"
+                icon={<Router />}
+                label="Upstream Servers"
                 id="admin-tab-1"
                 aria-controls="admin-tabpanel-1"
               />
@@ -109,10 +128,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
                 aria-controls="admin-tabpanel-2"
               />
               <Tab
-                icon={<Settings />}
-                label="Settings"
+                icon={<Assessment />}
+                label="Statistics"
                 id="admin-tab-3"
                 aria-controls="admin-tabpanel-3"
+              />
+              <Tab
+                icon={<Description />}
+                label="Logs"
+                id="admin-tab-4"
+                aria-controls="admin-tabpanel-4"
+              />
+              <Tab
+                icon={<People />}
+                label="Users"
+                id="admin-tab-5"
+                aria-controls="admin-tabpanel-5"
               />
             </Tabs>
           </Box>
@@ -131,29 +162,32 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
             </Box>
           </TabPanel>
 
-          {/* Users Tab */}
+          {/* Upstream Servers Tab */}
           <TabPanel value={tabValue} index={1}>
-            <Typography variant="h6" gutterBottom>
-              User Management
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              User management functionality will be implemented here.
-            </Typography>
+            <UpstreamServers adminMode={true} onTabChange={handleTabChangeFromUpstreamServers} />
           </TabPanel>
 
-          {/* Servers Tab */}
+          {/* Curated Servers Tab */}
           <TabPanel value={tabValue} index={2}>
             <CuratedServers adminMode={true} />
           </TabPanel>
 
-          {/* Settings Tab */}
+          {/* Statistics Tab */}
           <TabPanel value={tabValue} index={3}>
-            <Typography variant="h6" gutterBottom>
-              System Settings
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              System configuration and settings will be implemented here.
-            </Typography>
+            <Statistics />
+          </TabPanel>
+
+          {/* Logs Tab */}
+          <TabPanel value={tabValue} index={4}>
+            <Logs 
+              selectedServerId={selectedLogServerId} 
+              selectedServerName={selectedLogServerName} 
+            />
+          </TabPanel>
+
+          {/* Users Tab */}
+          <TabPanel value={tabValue} index={5}>
+            <UserManagement />
           </TabPanel>
         </Paper>
       </Container>

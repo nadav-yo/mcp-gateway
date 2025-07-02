@@ -86,7 +86,7 @@ func (db *DB) GetUser(id int64) (*UserRecord, error) {
 
 	row := db.conn.QueryRow(query, id)
 
-	var user UserRecord
+	user := UserRecord{}
 	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -107,7 +107,7 @@ func (db *DB) GetUserByUsername(username string) (*UserRecord, error) {
 
 	row := db.conn.QueryRow(query, username)
 
-	var user UserRecord
+	user := UserRecord{}
 	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -134,7 +134,7 @@ func (db *DB) ListUsers() ([]*UserRecord, error) {
 
 	var users []*UserRecord
 	for rows.Next() {
-		var user UserRecord
+		user := UserRecord{}
 		err := rows.Scan(&user.ID, &user.Username, &user.Password, &user.IsActive, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
@@ -472,4 +472,34 @@ func (db *DB) usernameExistsExcludingID(username string, excludeID int64) (bool,
 		return false, fmt.Errorf("failed to check if username exists: %w", err)
 	}
 	return exists, nil
+}
+
+// UpdateTokenLastUsed updates the last_used timestamp for a token
+// This function is designed to be called asynchronously and handles conflicts gracefully
+func (db *DB) UpdateTokenLastUsed(token string) error {
+	// Use a more conservative approach with longer intervals and better conflict handling
+	err := db.retryOnBusy(func() error {
+		// Only update if the last_used is NULL or older than 5 minutes
+		// This prevents unnecessary updates and reduces conflicts
+		query := `
+		UPDATE tokens 
+		SET last_used = CURRENT_TIMESTAMP 
+		WHERE token = ? 
+		AND (last_used IS NULL OR last_used < datetime('now', '-5 minutes'))
+		`
+		_, err := db.conn.Exec(query, token)
+		return err
+	}, 2)
+
+	if err != nil {
+		// Log at debug level since this is not critical for token validation
+		db_logger := logger.GetLoggerWithContext(map[string]interface{}{
+			"error": err,
+			"token": token[:8] + "...",
+		})
+		db_logger.Debug().Err(err).Msg("Failed to update token last_used timestamp (non-critical)")
+		return err
+	}
+
+	return nil
 }

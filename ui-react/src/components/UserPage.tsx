@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Container,
   Typography,
@@ -6,17 +6,25 @@ import {
   Button,
   AppBar,
   Toolbar,
+  Tabs,
+  Tab,
 } from '@mui/material';
-import { Logout } from '@mui/icons-material';
+import { 
+  Logout,
+  Dashboard,
+  LibraryBooks,
+} from '@mui/icons-material';
 import { UserInfo } from './UserInfo';
 import { TokenManagement } from './TokenManagement';
-import { CuratedServers } from './CuratedServers';
+import { UserCuratedServers } from './UserCuratedServers';
 
 interface UserPageProps {
   onLogout: () => void;
 }
 
 export const UserPage: React.FC<UserPageProps> = ({ onLogout }) => {
+  const [activeTab, setActiveTab] = useState(0);
+
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -25,6 +33,10 @@ export const UserPage: React.FC<UserPageProps> = ({ onLogout }) => {
     } finally {
       onLogout();
     }
+  };
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
   };
 
   return (
@@ -44,21 +56,47 @@ export const UserPage: React.FC<UserPageProps> = ({ onLogout }) => {
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {/* User Information */}
-          <Box>
-            <UserInfo />
+      <Container maxWidth="lg" sx={{ mt: 2, mb: 4 }}>
+        <Box sx={{ width: '100%' }}>
+          {/* Tabs Navigation */}
+          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Tabs value={activeTab} onChange={handleTabChange} aria-label="user dashboard tabs">
+              <Tab 
+                icon={<Dashboard />} 
+                label="Dashboard" 
+                iconPosition="start"
+              />
+              <Tab 
+                icon={<LibraryBooks />} 
+                label="Curated Servers" 
+                iconPosition="start"
+              />
+            </Tabs>
           </Box>
 
-          {/* Token Management */}
-          <Box>
-            <TokenManagement />
-          </Box>
+          {/* Tab Content */}
+          <Box sx={{ mt: 3 }}>
+            {/* Dashboard Tab */}
+            {activeTab === 0 && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {/* User Information */}
+                <Box>
+                  <UserInfo />
+                </Box>
 
-          {/* Curated Servers */}
-          <Box>
-            <CuratedServers />
+                {/* Token Management */}
+                <Box>
+                  <TokenManagement />
+                </Box>
+              </Box>
+            )}
+
+            {/* Curated Servers Tab */}
+            {activeTab === 1 && (
+              <Box>
+                <UserCuratedServers />
+              </Box>
+            )}
           </Box>
         </Box>
       </Container>

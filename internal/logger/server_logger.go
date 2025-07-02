@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/rs/zerolog"
 	"github.com/nadav-yo/mcp-gateway/pkg/config"
+	"github.com/rs/zerolog"
 )
 
 // ServerLogger manages individual log files for each server
