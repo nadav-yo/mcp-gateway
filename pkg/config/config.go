@@ -151,8 +151,8 @@ func Load(configPath string) (*Config, error) {
 			Output: "stdout",
 			Rotation: LogRotationConfig{
 				Enabled:    true,
-				MaxSizeMB:  100,
-				MaxBackups: 5,
+				MaxSizeMB:  1,
+				MaxBackups: 10,
 				MaxAgeDays: 30,
 				Compress:   true,
 			},

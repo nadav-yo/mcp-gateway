@@ -43,7 +43,7 @@ logging:
   output: "stdout"
   rotation:
     enabled: true
-    max_size_mb: 10       # Maximum size of each log file in MB
-    max_backups: 3        # Maximum number of backup files to keep
+    max_size_mb: 1        # Reduced from 10MB to 1MB for better web loading
+    max_backups: 10       # Increased backups to keep more history
     max_age_days: 30      # Maximum number of days to keep old log files
     compress: true        # Whether to compress rotated log files

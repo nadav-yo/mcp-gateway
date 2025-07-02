@@ -85,7 +85,7 @@ func (h *BlockedResourceHandler) CreateBlockedResource(w http.ResponseWriter, r 
 
 	// Audit log for blocked resource creation
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "blocked_resource_created").
 			Int64("server_id", created.ServerID).
@@ -226,7 +226,7 @@ func (h *BlockedResourceHandler) DeleteBlockedResource(w http.ResponseWriter, r 
 
 	// Audit log for blocked resource deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "blocked_resource_deleted").
 			Int64("server_id", blockedResource.ServerID).
@@ -284,7 +284,7 @@ func (h *BlockedResourceHandler) DeleteBlockedResourceByDetails(w http.ResponseW
 
 	// Audit log for blocked resource deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "blocked_resource_deleted").
 			Int64("server_id", serverID).
@@ -348,7 +348,7 @@ func (h *BlockedResourceHandler) ToggleBlockedResource(w http.ResponseWriter, r 
 
 		// Audit log for blocking
 		if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-			logger.GetAuditLogger().Info().
+			logger.Audit(r.Context()).Info().
 				Str("admin_username", user.Username).
 				Str("action", "resource_blocked").
 				Int64("server_id", created.ServerID).
@@ -378,7 +378,7 @@ func (h *BlockedResourceHandler) ToggleBlockedResource(w http.ResponseWriter, r 
 
 		// Audit log for unblocking
 		if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-			logger.GetAuditLogger().Info().
+			logger.Audit(r.Context()).Info().
 				Str("admin_username", user.Username).
 				Str("action", "resource_unblocked").
 				Int64("server_id", req.ServerID).

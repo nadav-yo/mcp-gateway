@@ -85,7 +85,7 @@ func (h *BlockedPromptHandler) CreateBlockedPrompt(w http.ResponseWriter, r *htt
 
 	// Audit log for blocked prompt creation
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "blocked_prompt_created").
 			Int64("server_id", created.ServerID).
@@ -226,7 +226,7 @@ func (h *BlockedPromptHandler) DeleteBlockedPrompt(w http.ResponseWriter, r *htt
 
 	// Audit log for blocked prompt deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "blocked_prompt_deleted").
 			Int64("server_id", blockedPrompt.ServerID).
@@ -284,7 +284,7 @@ func (h *BlockedPromptHandler) DeleteBlockedPromptByDetails(w http.ResponseWrite
 
 	// Audit log for blocked prompt deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "blocked_prompt_deleted").
 			Int64("server_id", serverID).
@@ -348,7 +348,7 @@ func (h *BlockedPromptHandler) ToggleBlockedPrompt(w http.ResponseWriter, r *htt
 
 		// Audit log for blocking
 		if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-			logger.GetAuditLogger().Info().
+			logger.Audit(r.Context()).Info().
 				Str("admin_username", user.Username).
 				Str("action", "prompt_blocked").
 				Int64("server_id", created.ServerID).
@@ -378,7 +378,7 @@ func (h *BlockedPromptHandler) ToggleBlockedPrompt(w http.ResponseWriter, r *htt
 
 		// Audit log for unblocking
 		if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-			logger.GetAuditLogger().Info().
+			logger.Audit(r.Context()).Info().
 				Str("admin_username", user.Username).
 				Str("action", "prompt_unblocked").
 				Int64("server_id", req.ServerID).

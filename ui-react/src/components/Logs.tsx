@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -16,11 +16,23 @@ import {
   Alert,
   CircularProgress,
   Paper,
+  TextField,
+  InputAdornment,
+  Chip,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   Description,
   Refresh,
   Download,
+  Search,
+  ExpandMore,
+  ViewList,
+  ViewModule,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -48,9 +60,30 @@ interface LogContentResponse {
     content: string;
     path?: string;
     size?: number;
+    file_size?: number;
+    filtered?: boolean;
+    suggestions?: string[];
   };
   message?: string;
   error?: string;
+}
+
+interface ParsedLogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  component?: string;
+  trace_id?: string;
+  user_id?: number;
+  username?: string;
+  method?: string;
+  path?: string;
+  status_code?: number;
+  duration?: string;
+  server_id?: number;
+  server_name?: string;
+  raw: any;
+  original: string;
 }
 
 const GATEWAY_LOGS = [
@@ -78,12 +111,16 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
   const [currentLogFilename, setCurrentLogFilename] = useState<string | null>(null);
   const [currentServerName, setCurrentServerName] = useState<string>('');
   const [logContent, setLogContent] = useState<string>('');
+  const [parsedLogs, setParsedLogs] = useState<ParsedLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [logsListLoading, setLogsListLoading] = useState(true);
   const [error, setError] = useState('');
   const [tailEnabled, setTailEnabled] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [levelFilter, setLevelFilter] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'structured' | 'raw'>('structured');
   
   const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const logContentRef = useRef<HTMLDivElement>(null);
@@ -98,6 +135,55 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
+
+  // Parse log content into structured entries
+  const parseLogContent = useCallback((content: string): ParsedLogEntry[] => {
+    if (!content.trim()) return [];
+    
+    const lines = content.trim().split('\n');
+    const entries: ParsedLogEntry[] = [];
+    
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      
+      try {
+        // Try to parse as JSON first
+        const parsed = JSON.parse(line);
+        
+        const entry: ParsedLogEntry = {
+          timestamp: parsed.time || parsed.timestamp || new Date().toISOString(),
+          level: parsed.level || 'info',
+          message: parsed.message || parsed.msg || '',
+          component: parsed.component,
+          trace_id: parsed.trace_id,
+          user_id: parsed.user_id,
+          username: parsed.username,
+          method: parsed.method,
+          path: parsed.path,
+          status_code: parsed.status_code,
+          duration: parsed.duration,
+          server_id: parsed.server_id,
+          server_name: parsed.server_name,
+          raw: parsed,
+          original: line
+        };
+        
+        entries.push(entry);
+      } catch (error) {
+        // If not JSON, treat as plain text log
+        const entry: ParsedLogEntry = {
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          message: line,
+          raw: { text: line },
+          original: line
+        };
+        entries.push(entry);
+      }
+    }
+    
+    return entries.reverse(); // Show newest first
+  }, []);
 
   // Load available server logs
   const loadServerLogs = useCallback(async () => {
@@ -139,8 +225,23 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
       }
 
       let url = `/api/logs/${filename}`;
+      const params = new URLSearchParams();
+      
       if (tailEnabled) {
-        url += '?tail=true&lines=100';
+        params.append('tail', 'true');
+        params.append('lines', '100');
+      }
+      
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+      
+      if (levelFilter !== 'all') {
+        params.append('level', levelFilter);
+      }
+      
+      if (params.toString()) {
+        url += '?' + params.toString();
       }
 
       const response = await fetch(url, { headers });
@@ -157,7 +258,12 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
           }
         }, 100);
       } else {
-        throw new Error(result.message || result.error || 'Failed to load log');
+        // Handle file too large error with suggestions
+        if (response.status === 413) {
+          setError(`${result.error}\n\nSuggestions:\n${(result.data?.suggestions || []).join('\n')}`);
+        } else {
+          throw new Error(result.message || result.error || 'Failed to load log');
+        }
       }
     } catch (error) {
       console.error('Error loading gateway log:', error);
@@ -165,7 +271,7 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
     } finally {
       setLoading(false);
     }
-  }, [token, tailEnabled]);
+  }, [token, tailEnabled, searchTerm, levelFilter]);
 
   // Load server log content
   const loadServerLog = useCallback(async (serverId: number, serverName: string) => {
@@ -183,8 +289,23 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
       }
 
       let url = `/api/upstream-servers/${serverId}/logs`;
+      const params = new URLSearchParams();
+      
       if (tailEnabled) {
-        url += '?tail=true&lines=100';
+        params.append('tail', 'true');
+        params.append('lines', '100');
+      }
+      
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+      
+      if (levelFilter !== 'all') {
+        params.append('level', levelFilter);
+      }
+      
+      if (params.toString()) {
+        url += '?' + params.toString();
       }
 
       const response = await fetch(url, { headers });
@@ -201,7 +322,12 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
           }
         }, 100);
       } else {
-        throw new Error(result.message || result.error || 'Failed to load log');
+        // Handle file too large error with suggestions
+        if (response.status === 413) {
+          setError(`${result.error}\n\nSuggestions:\n${(result.data?.suggestions || []).join('\n')}`);
+        } else {
+          throw new Error(result.message || result.error || 'Failed to load log');
+        }
       }
     } catch (error) {
       console.error('Error loading server log:', error);
@@ -209,7 +335,7 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
     } finally {
       setLoading(false);
     }
-  }, [token, tailEnabled]);
+  }, [token, tailEnabled, searchTerm, levelFilter]);
 
   // Refresh current log
   const refreshCurrentLog = useCallback(() => {
@@ -301,6 +427,47 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
     loadServerLogs();
   }, [loadServerLogs]);
 
+  // Parse logs when content changes
+  useEffect(() => {
+    const parsed = parseLogContent(logContent);
+    setParsedLogs(parsed);
+  }, [logContent, parseLogContent]);
+
+  // Filter logs based on search and level
+  const filteredLogs = useMemo(() => {
+    return parsedLogs.filter(log => {
+      const matchesSearch = !searchTerm || 
+        log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        log.trace_id?.includes(searchTerm) ||
+        log.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        log.path?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesLevel = levelFilter === 'all' || log.level === levelFilter;
+      
+      return matchesSearch && matchesLevel;
+    });
+  }, [parsedLogs, searchTerm, levelFilter]);
+
+  // Get log level color
+  const getLogLevelColor = (level: string) => {
+    switch (level.toLowerCase()) {
+      case 'error': return 'error';
+      case 'warn': return 'warning';
+      case 'info': return 'info';
+      case 'debug': return 'primary';
+      default: return 'default';
+    }
+  };
+
+  // Format timestamp
+  const formatTimestamp = (timestamp: string) => {
+    try {
+      return new Date(timestamp).toLocaleString();
+    } catch {
+      return timestamp;
+    }
+  };
+
   // Handle automatic server selection when props are provided
   useEffect(() => {
     if (selectedServerId && selectedServerName && serverLogs.length > 0) {
@@ -378,7 +545,7 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
 
       <Box sx={{ display: 'flex', gap: 3, height: '70vh', minHeight: '600px' }}>
         {/* Logs List */}
-        <Card sx={{ width: '300px', display: 'flex', flexDirection: 'column' }}>
+        <Card sx={{ width: '250px', display: 'flex', flexDirection: 'column' }}>
           <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" gutterBottom>
               Available Logs
@@ -461,6 +628,19 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
                 {getCurrentLogTitle()}
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <ToggleButtonGroup
+                  value={viewMode}
+                  exclusive
+                  onChange={(_, newMode) => newMode && setViewMode(newMode)}
+                  size="small"
+                >
+                  <ToggleButton value="structured">
+                    <ViewModule />
+                  </ToggleButton>
+                  <ToggleButton value="raw">
+                    <ViewList />
+                  </ToggleButton>
+                </ToggleButtonGroup>
                 <FormControlLabel
                   control={
                     <Checkbox
@@ -492,49 +672,222 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
               </Box>
             </Box>
 
+            {/* Search and Filter Controls */}
+            {hasCurrentLog && viewMode === 'structured' && (
+              <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                <TextField
+                  size="small"
+                  placeholder="Search logs..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  select
+                  size="small"
+                  label="Level"
+                  value={levelFilter}
+                  onChange={(e) => setLevelFilter(e.target.value)}
+                  SelectProps={{ native: true }}
+                  sx={{ minWidth: 120 }}
+                >
+                  <option value="all">All Levels</option>
+                  <option value="error">Error</option>
+                  <option value="warn">Warning</option>
+                  <option value="info">Info</option>
+                  <option value="debug">Debug</option>
+                </TextField>
+              </Box>
+            )}
+
             {/* Log Content */}
-            <Paper
-              ref={logContentRef}
-              sx={{
-                flex: 1,
-                p: 2,
-                bgcolor: 'background.paper',
-                color: 'text.primary',
-                fontFamily: 'monospace',
-                fontSize: '12px',
-                overflow: 'auto',
-                overflowY: 'scroll',
-                overflowX: 'auto',
-                whiteSpace: 'pre',
-                wordBreak: 'normal',
-                border: '1px solid',
-                borderColor: 'divider',
-              }}
-            >
-              {loading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-                  <CircularProgress />
-                </Box>
-              ) : error ? (
-                <Alert severity="error">
-                  {error}
-                </Alert>
-              ) : !hasCurrentLog ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-                  <Typography variant="body2" color="textSecondary">
-                    Select a log from the list to view its contents
-                  </Typography>
-                </Box>
-              ) : logContent.trim() === '' ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-                  <Typography variant="body2" color="textSecondary">
-                    Log file is empty
-                  </Typography>
-                </Box>
-              ) : (
-                logContent
-              )}
-            </Paper>
+            {viewMode === 'raw' ? (
+              <Paper
+                ref={logContentRef}
+                sx={{
+                  flex: 1,
+                  p: 2,
+                  bgcolor: 'background.paper',
+                  color: 'text.primary',
+                  fontFamily: 'monospace',
+                  fontSize: '12px',
+                  overflow: 'auto',
+                  overflowY: 'scroll',
+                  overflowX: 'auto',
+                  whiteSpace: 'pre',
+                  wordBreak: 'normal',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                {loading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                    <CircularProgress />
+                  </Box>
+                ) : error ? (
+                  <Alert severity="error">
+                    {error}
+                  </Alert>
+                ) : !hasCurrentLog ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                    <Typography variant="body2" color="textSecondary">
+                      Select a log from the list to view its contents
+                    </Typography>
+                  </Box>
+                ) : logContent.trim() === '' ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                    <Typography variant="body2" color="textSecondary">
+                      Log file is empty
+                    </Typography>
+                  </Box>
+                ) : (
+                  logContent
+                )}
+              </Paper>
+            ) : (
+              <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                {loading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                    <CircularProgress />
+                  </Box>
+                ) : error ? (
+                  <Alert severity="error">
+                    {error}
+                  </Alert>
+                ) : !hasCurrentLog ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                    <Typography variant="body2" color="textSecondary">
+                      Select a log from the list to view its contents
+                    </Typography>
+                  </Box>
+                ) : filteredLogs.length === 0 ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                    <Typography variant="body2" color="textSecondary">
+                      {parsedLogs.length === 0 ? 'Log file is empty' : 'No logs match your search criteria'}
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Box sx={{ flex: 1, overflow: 'auto' }}>
+                    {filteredLogs.map((logEntry, index) => (
+                      <Accordion key={index} sx={{ mb: 1 }}>
+                        <AccordionSummary
+                          expandIcon={<ExpandMore />}
+                          sx={{
+                            '& .MuiAccordionSummary-content': {
+                              alignItems: 'center',
+                              gap: 1,
+                            }
+                          }}
+                        >
+                          <Chip
+                            label={logEntry.level.toUpperCase()}
+                            color={getLogLevelColor(logEntry.level) as any}
+                            size="small"
+                            sx={{ minWidth: 60 }}
+                          />
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                            {formatTimestamp(logEntry.timestamp)}
+                          </Typography>
+                          {logEntry.trace_id && (
+                            <Chip
+                              label={`Trace: ${logEntry.trace_id}`}
+                              variant="outlined"
+                              size="small"
+                            />
+                          )}
+                          {logEntry.method && logEntry.path && currentLogFilename !== 'request.log' && (
+                            <Chip
+                              label={`${logEntry.method} ${logEntry.path}`}
+                              variant="outlined"
+                              size="small"
+                              color="primary"
+                            />
+                          )}
+                          {logEntry.status_code && (
+                            <Chip
+                              label={`${logEntry.status_code}`}
+                              variant="outlined"
+                              size="small"
+                              color={logEntry.status_code >= 400 ? 'error' : logEntry.status_code >= 300 ? 'warning' : 'success'}
+                            />
+                          )}
+                          <Typography variant="body2" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {/* For request.log, show method+path instead of message */}
+                            {currentLogFilename === 'request.log' && logEntry.method && logEntry.path ? 
+                              `${logEntry.method} ${logEntry.path}` : 
+                              logEntry.message
+                            }
+                          </Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {/* Main log details - hide message for request.log since it's always "Request processed" */}
+                            {currentLogFilename !== 'request.log' && (
+                              <Box>
+                                <Typography variant="subtitle2" gutterBottom>
+                                  Message
+                                </Typography>
+                                <Typography variant="body2" sx={{ fontFamily: 'monospace', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
+                                  {logEntry.message}
+                                </Typography>
+                              </Box>
+                            )}
+
+                            {/* Structured fields */}
+                            {(logEntry.component || logEntry.username || logEntry.duration || logEntry.server_name) && (
+                              <Box>
+                                <Typography variant="subtitle2" gutterBottom>
+                                  Details
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                  {logEntry.component && (
+                                    <Chip label={`Component: ${logEntry.component}`} variant="outlined" size="small" />
+                                  )}
+                                  {logEntry.username && (
+                                    <Chip label={`User: ${logEntry.username}`} variant="outlined" size="small" />
+                                  )}
+                                  {logEntry.user_id && (
+                                    <Chip label={`User ID: ${logEntry.user_id}`} variant="outlined" size="small" />
+                                  )}
+                                  {logEntry.duration && (
+                                    <Chip label={`Duration: ${logEntry.duration}`} variant="outlined" size="small" />
+                                  )}
+                                  {logEntry.server_name && (
+                                    <Chip label={`Server: ${logEntry.server_name}`} variant="outlined" size="small" />
+                                  )}
+                                  {logEntry.server_id && (
+                                    <Chip label={`Server ID: ${logEntry.server_id}`} variant="outlined" size="small" />
+                                  )}
+                                </Box>
+                              </Box>
+                            )}
+
+                            {/* Raw JSON */}
+                            <Box>
+                              <Typography variant="subtitle2" gutterBottom>
+                                Raw Data
+                              </Typography>
+                              <Paper sx={{ p: 1, bgcolor: 'action.hover', overflow: 'auto' }}>
+                                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '11px', whiteSpace: 'pre' }}>
+                                  {JSON.stringify(logEntry.raw, null, 2)}
+                                </Typography>
+                              </Paper>
+                            </Box>
+                          </Box>
+                        </AccordionDetails>
+                      </Accordion>
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            )}
           </CardContent>
         </Card>
       </Box>

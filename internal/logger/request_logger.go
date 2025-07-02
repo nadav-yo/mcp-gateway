@@ -116,7 +116,11 @@ func (rl *RequestLogger) Middleware(next http.Handler) http.Handler {
 			statusCode:     200, // default status code
 		}
 
-		// Log the incoming request
+		// Process the request
+		next.ServeHTTP(wrappedWriter, r)
+
+		// Log the complete request with all information
+		duration := time.Since(start)
 		rl.logger.Info().
 			Str("trace_id", traceID).
 			Str("method", r.Method).
@@ -128,22 +132,9 @@ func (rl *RequestLogger) Middleware(next http.Handler) http.Handler {
 			Str("username", username).
 			Str("content_type", r.Header.Get("Content-Type")).
 			Int64("content_length", r.ContentLength).
-			Msg("Request received")
-
-		// Process the request
-		next.ServeHTTP(wrappedWriter, r)
-
-		// Log the response
-		duration := time.Since(start)
-		rl.logger.Info().
-			Str("trace_id", traceID).
-			Str("method", r.Method).
-			Str("path", r.URL.Path).
 			Int("status_code", wrappedWriter.statusCode).
 			Dur("duration", duration).
-			Int64("user_id", userID).
-			Str("username", username).
-			Msg("Request completed")
+			Msg("Request processed")
 	})
 }
 
@@ -160,7 +151,7 @@ func (rw *responseWriter) WriteHeader(statusCode int) {
 
 // GetTraceID extracts the trace ID from the request context
 func GetTraceID(ctx context.Context) string {
-	if traceID, ok := ctx.Value("traceID").(string); ok {
+	if traceID, ok := ctx.Value(traceIDKey).(string); ok {
 		return traceID
 	}
 	return ""

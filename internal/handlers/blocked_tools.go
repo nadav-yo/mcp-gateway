@@ -85,7 +85,7 @@ func (h *BlockedToolHandler) CreateBlockedTool(w http.ResponseWriter, r *http.Re
 
 	// Audit log for blocked tool creation
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "blocked_tool_created").
 			Int64("server_id", created.ServerID).
@@ -226,7 +226,7 @@ func (h *BlockedToolHandler) DeleteBlockedTool(w http.ResponseWriter, r *http.Re
 
 	// Audit log for blocked tool deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "blocked_tool_deleted").
 			Int64("server_id", blockedTool.ServerID).
@@ -284,7 +284,7 @@ func (h *BlockedToolHandler) DeleteBlockedToolByDetails(w http.ResponseWriter, r
 
 	// Audit log for blocked tool deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "blocked_tool_deleted").
 			Int64("server_id", serverID).
@@ -348,7 +348,7 @@ func (h *BlockedToolHandler) ToggleBlockedTool(w http.ResponseWriter, r *http.Re
 
 		// Audit log for blocking
 		if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-			logger.GetAuditLogger().Info().
+			logger.Audit(r.Context()).Info().
 				Str("admin_username", user.Username).
 				Str("action", "tool_blocked").
 				Int64("server_id", created.ServerID).
@@ -378,7 +378,7 @@ func (h *BlockedToolHandler) ToggleBlockedTool(w http.ResponseWriter, r *http.Re
 
 		// Audit log for unblocking
 		if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-			logger.GetAuditLogger().Info().
+			logger.Audit(r.Context()).Info().
 				Str("admin_username", user.Username).
 				Str("action", "tool_unblocked").
 				Int64("server_id", req.ServerID).

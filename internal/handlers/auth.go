@@ -113,7 +113,7 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// Validate user credentials
 	user, err := h.db.ValidateUser(req.Username, req.Password)
 	if err != nil {
-		logger.GetAuditLogger().Warn().Str("username", req.Username).Msg("Login attempt failed")
+		logger.Audit(r.Context()).Warn().Str("username", req.Username).Msg("Login attempt failed")
 		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
 		return
 	}
@@ -122,7 +122,7 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	expiresAt := time.Now().Add(24 * time.Hour)
 	token, err := h.db.CreateToken(user.ID, user.Username, "Login token", &expiresAt, true) // true = internal token
 	if err != nil {
-		logger.GetAuditLogger().Error().Err(err).Msg("Failed to create token")
+		logger.Audit(r.Context()).Error().Err(err).Msg("Failed to create token")
 		http.Error(w, "Failed to create token", http.StatusInternalServerError)
 		return
 	}
@@ -159,7 +159,7 @@ func (h *AuthHandler) HandleCreateToken(w http.ResponseWriter, r *http.Request) 
 
 	token, err := h.db.CreateToken(user.UserID, user.Username, req.Description, req.ExpiresAt, false) // false = not internal
 	if err != nil {
-		logger.GetAuditLogger().Error().Err(err).Msg("Failed to create token")
+		logger.Audit(r.Context()).Error().Err(err).Msg("Failed to create token")
 		http.Error(w, "Failed to create token", http.StatusInternalServerError)
 		return
 	}
@@ -239,7 +239,7 @@ func (h *AuthHandler) HandleRevokeToken(w http.ResponseWriter, r *http.Request) 
 
 	err := h.db.RevokeToken(id, user.UserID)
 	if err != nil {
-		logger.GetAuditLogger().Error().Err(err).Msg("Failed to revoke token")
+		logger.Audit(r.Context()).Error().Err(err).Msg("Failed to revoke token")
 		http.Error(w, "Failed to revoke token", http.StatusInternalServerError)
 		return
 	}
@@ -290,11 +290,9 @@ func (h *AuthHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
 
-	logger.GetAuditLogger().Info().Str("username", user.Username).Bool("is_admin", user.IsAdmin).Msg("User created successfully")
-
 	// Audit log for user creation
 	if adminToken, ok := r.Context().Value(userContextKey).(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", adminToken.Username).
 			Str("action", "user_created").
 			Str("target_username", user.Username).
@@ -413,7 +411,7 @@ func (h *AuthHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Update the user (password changes must be done through /auth/change-password)
 	updatedUser, err := h.db.UpdateUser(userID, username, "", isActive, isAdmin)
 	if err != nil {
-		logger.GetAuditLogger().Error().Err(err).Int64("user_id", userID).Msg("Failed to update user")
+		logger.Audit(r.Context()).Error().Err(err).Int64("user_id", userID).Msg("Failed to update user")
 		var userExistsErr database.ErrUserAlreadyExists
 		if errors.As(err, &userExistsErr) {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -436,7 +434,7 @@ func (h *AuthHandler) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 
 	// Audit log for user update
-	logger.GetAuditLogger().Info().
+	logger.Audit(r.Context()).Info().
 		Str("admin_username", currentUser.Username).
 		Str("action", "user_updated").
 		Int64("target_id", userID).
@@ -486,7 +484,7 @@ func (h *AuthHandler) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 
 	// Audit log for user deletion
 	if adminToken, ok := r.Context().Value(userContextKey).(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", adminToken.Username).
 			Str("action", "user_deleted").
 			Int64("target_id", userID).
@@ -508,7 +506,7 @@ func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	// Revoke the current token
 	err := h.db.RevokeToken(user.ID, user.UserID)
 	if err != nil {
-		logger.GetAuditLogger().Error().Err(err).Msg("Failed to revoke current token during logout")
+		logger.Audit(r.Context()).Error().Err(err).Msg("Failed to revoke current token during logout")
 		// Don't fail the logout if token revocation fails - client should still clear cookies
 	}
 
@@ -706,7 +704,7 @@ func (h *AuthHandler) HandleChangePassword(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Password changed successfully"))
 
-	logger.GetAuditLogger().Info().
+	logger.Audit(r.Context()).Info().
 		Int64("user_id", currentUser.UserID).
 		Str("username", user.Username).
 		Msg("User password changed successfully")

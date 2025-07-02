@@ -78,16 +78,8 @@ func (sl *ServerLogger) CreateServerLogger(serverID int64, serverName string) (z
 	}
 	sl.loggers[serverID] = entry
 
-	fileWriter := zerolog.ConsoleWriter{
-		Out:        writer,
-		TimeFormat: "2006-01-02 15:04:05",
-		NoColor:    true, // No color codes in log files
-	}
-
-	// Multi-writer to write to file
-	multiWriter := zerolog.MultiLevelWriter(fileWriter)
-
-	logger := zerolog.New(multiWriter).
+	// Create a JSON logger (similar to request logger)
+	logger := zerolog.New(writer).
 		With().
 		Timestamp().
 		Str("component", "mcp-server").
@@ -157,14 +149,8 @@ func (sl *ServerLogger) LogServerEvent(serverID int64, level string, message str
 		return // Logger not initialized for this server
 	}
 
-	// Create a temporary logger for this event
-	fileWriter := zerolog.ConsoleWriter{
-		Out:        loggerEntry.writer,
-		TimeFormat: "2006-01-02 15:04:05",
-		NoColor:    true,
-	}
-
-	logger := zerolog.New(fileWriter).
+	// Create a JSON logger for this event (consistent with request logger)
+	logger := zerolog.New(loggerEntry.writer).
 		With().
 		Timestamp().
 		Str("component", "mcp-server").

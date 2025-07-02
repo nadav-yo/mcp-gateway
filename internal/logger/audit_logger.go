@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"path/filepath"
 
 	"github.com/nadav-yo/mcp-gateway/pkg/config"
@@ -39,9 +40,14 @@ func initAuditLogger() error {
 	return nil
 }
 
-// GetAuditLogger returns the audit logger instance
-func GetAuditLogger() *zerolog.Logger {
-	return &auditLogger
+// Audit returns a logger with trace ID from context (if available)
+// This is the recommended way to get audit logger with automatic trace correlation
+func Audit(ctx context.Context) *zerolog.Logger {
+	logger := auditLogger
+	if traceID := GetTraceID(ctx); traceID != "" {
+		logger = logger.With().Str("trace_id", traceID).Logger()
+	}
+	return &logger
 }
 
 func init() {

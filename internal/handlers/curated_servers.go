@@ -103,7 +103,7 @@ func (h *CuratedServerHandler) CreateCuratedServer(w http.ResponseWriter, r *htt
 
 	// Audit log for server creation
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "curated_server_created").
 			Str("server_name", created.Name).
@@ -195,7 +195,7 @@ func (h *CuratedServerHandler) UpdateCuratedServer(w http.ResponseWriter, r *htt
 
 	// Audit log for server update
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "curated_server_updated").
 			Str("server_name", updated.Name).
@@ -237,7 +237,7 @@ func (h *CuratedServerHandler) DeleteCuratedServer(w http.ResponseWriter, r *htt
 
 	// Audit log for server deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "curated_server_deleted").
 			Str("server_name", server.Name).

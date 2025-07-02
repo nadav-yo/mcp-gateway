@@ -171,7 +171,7 @@ func (h *UpstreamHandler) CreateUpstreamServer(w http.ResponseWriter, r *http.Re
 
 	// Audit log for server creation
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "server_created").
 			Str("server_name", created.Name).
@@ -321,7 +321,7 @@ func (h *UpstreamHandler) UpdateUpstreamServer(w http.ResponseWriter, r *http.Re
 
 	// Audit log for server update
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "server_updated").
 			Int64("server_id", id).
@@ -373,7 +373,7 @@ func (h *UpstreamHandler) DeleteUpstreamServer(w http.ResponseWriter, r *http.Re
 
 	// Audit log for server deletion
 	if user, ok := r.Context().Value("user").(*database.TokenRecord); ok {
-		logger.GetAuditLogger().Info().
+		logger.Audit(r.Context()).Info().
 			Str("admin_username", user.Username).
 			Str("action", "server_deleted").
 			Int64("server_id", id).
@@ -476,49 +476,101 @@ func (h *UpstreamHandler) GetServerLog(w http.ResponseWriter, r *http.Request) {
 	logPath := logger.GetServerLogger().GetServerLogPath(id)
 
 	// Check if log file exists
-	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+	fileInfo, err := os.Stat(logPath)
+	if os.IsNotExist(err) {
 		h.writeErrorResponse(w, http.StatusNotFound, "Log file not found", nil)
 		return
 	}
 
-	// Check query parameters for options
-	tail := r.URL.Query().Get("tail")
-	lines := r.URL.Query().Get("lines")
-	download := r.URL.Query().Get("download") == "true"
+	// Parse query parameters
+	query := r.URL.Query()
+	download := query.Get("download") == "true"
+	tail := query.Get("tail") == "true"
+	linesParam := query.Get("lines")
+	pageParam := query.Get("page")
+	limitParam := query.Get("limit")
+	search := query.Get("search")
+	level := query.Get("level")
+
+	// Check file size and warn if too large (>5MB)
+	const maxDisplaySize = 5 * 1024 * 1024 // 5MB
+	fileSize := fileInfo.Size()
 
 	if download {
-		// Read the entire log file for download
-		content, err := os.ReadFile(logPath)
-		if err != nil {
-			h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to read log file for download", err)
-			return
-		}
-
 		// Serve the file for download
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=server-%d.log", id))
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
-		w.WriteHeader(http.StatusOK)
-		w.Write(content)
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
+		http.ServeFile(w, r, logPath)
 		return
 	}
 
-	// Read log file content
+	// Handle streaming for large files
+	if query.Get("stream") == "true" {
+		h.streamLogFile(w, r, logPath, search, level)
+		return
+	}
+
+	// Default behavior for large files - force tail mode
+	if fileSize > maxDisplaySize && !tail && pageParam == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		
+		response := map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("Log file is too large (%d MB). Use tail=true, pagination, or download.", fileSize/(1024*1024)),
+			"data": map[string]interface{}{
+				"file_size":        fileSize,
+				"max_display_size": maxDisplaySize,
+				"suggestions": []string{
+					"Add ?tail=true&lines=100 for recent logs",
+					"Add ?page=1&limit=100 for pagination",
+					"Add ?download=true to download full file",
+					"Add ?stream=true for streaming",
+				},
+			},
+		}
+		
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	var content []byte
-	if tail == "true" && lines != "" {
-		// Tail the log file with specified number of lines
-		if lineCount, err := strconv.Atoi(lines); err == nil {
-			content, err = h.tailLogFile(logPath, lineCount)
-			if err != nil {
-				h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to read log file", err)
-				return
+
+	// Handle pagination
+	if pageParam != "" && limitParam != "" {
+		page, err := strconv.Atoi(pageParam)
+		if err != nil || page < 1 {
+			h.writeErrorResponse(w, http.StatusBadRequest, "Invalid page parameter", nil)
+			return
+		}
+		limit, err := strconv.Atoi(limitParam)
+		if err != nil || limit < 1 || limit > 1000 {
+			h.writeErrorResponse(w, http.StatusBadRequest, "Invalid limit parameter (1-1000)", nil)
+			return
+		}
+
+		content, err = h.getPaginatedLogContent(logPath, page, limit, search, level)
+		if err != nil {
+			h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to read paginated log content", err)
+			return
+		}
+	} else if tail {
+		// Handle tail mode
+		lineCount := 100 // default
+		if linesParam != "" {
+			if parsed, err := strconv.Atoi(linesParam); err == nil && parsed > 0 && parsed <= 10000 {
+				lineCount = parsed
 			}
-		} else {
-			h.writeErrorResponse(w, http.StatusBadRequest, "Invalid lines parameter", err)
+		}
+
+		content, err = h.tailLogFile(logPath, lineCount)
+		if err != nil {
+			h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to read log file", err)
 			return
 		}
 	} else {
-		// Read entire log file
+		// Read entire file (only for small files)
 		content, err = os.ReadFile(logPath)
 		if err != nil {
 			h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to read log file", err)
@@ -526,10 +578,17 @@ func (h *UpstreamHandler) GetServerLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Apply search and level filtering if specified
+	if search != "" || level != "" {
+		content = h.filterLogContent(content, search, level)
+	}
+
 	h.writeSuccessResponse(w, http.StatusOK, "", map[string]any{
-		"content": string(content),
-		"path":    logPath,
-		"size":    len(content),
+		"content":   string(content),
+		"path":      logPath,
+		"size":      len(content),
+		"file_size": fileSize,
+		"filtered":  search != "" || level != "",
 	})
 }
 
@@ -635,6 +694,145 @@ func (h *UpstreamHandler) tailLogFile(filepath string, lines int) ([]byte, error
 	}
 
 	return []byte(strings.Join(result, "\n")), nil
+}
+
+// streamLogFile streams log content in chunks for large files
+func (h *UpstreamHandler) streamLogFile(w http.ResponseWriter, r *http.Request, logPath, search, level string) {
+	file, err := os.Open(logPath)
+	if err != nil {
+		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to open log file", err)
+		return
+	}
+	defer file.Close()
+
+	// Set headers for streaming
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+
+	// Stream file in chunks
+	const chunkSize = 8192
+	buffer := make([]byte, chunkSize)
+	
+	for {
+		n, err := file.Read(buffer)
+		if n > 0 {
+			chunk := buffer[:n]
+			// Apply filtering if needed
+			if search != "" || level != "" {
+				chunk = h.filterLogContent(chunk, search, level)
+			}
+			if len(chunk) > 0 {
+				w.Write(chunk)
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// getPaginatedLogContent returns a specific page of log content
+func (h *UpstreamHandler) getPaginatedLogContent(logPath string, page, limit int, search, level string) ([]byte, error) {
+	file, err := os.Open(logPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Read all lines (for simplicity - could be optimized for very large files)
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	
+	// Apply filtering first
+	if search != "" || level != "" {
+		filteredLines := []string{}
+		for _, line := range lines {
+			if h.matchesFilter(line, search, level) {
+				filteredLines = append(filteredLines, line)
+			}
+		}
+		lines = filteredLines
+	}
+
+	// Calculate pagination
+	start := (page - 1) * limit
+	end := start + limit
+
+	if start >= len(lines) {
+		return []byte(""), nil
+	}
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	pageLines := lines[start:end]
+	return []byte(strings.Join(pageLines, "\n")), nil
+}
+
+// filterLogContent applies search and level filters to log content
+func (h *UpstreamHandler) filterLogContent(content []byte, search, level string) []byte {
+	if search == "" && level == "" {
+		return content
+	}
+
+	lines := strings.Split(string(content), "\n")
+	filteredLines := []string{}
+
+	for _, line := range lines {
+		if h.matchesFilter(line, search, level) {
+			filteredLines = append(filteredLines, line)
+		}
+	}
+
+	return []byte(strings.Join(filteredLines, "\n"))
+}
+
+// matchesFilter checks if a log line matches the search and level criteria
+func (h *UpstreamHandler) matchesFilter(line, search, level string) bool {
+	// Search filter
+	if search != "" {
+		searchLower := strings.ToLower(search)
+		lineLower := strings.ToLower(line)
+		if !strings.Contains(lineLower, searchLower) {
+			return false
+		}
+	}
+
+	// Level filter (for JSON logs)
+	if level != "" && level != "all" {
+		// Try to parse as JSON to extract level
+		var logEntry map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &logEntry); err == nil {
+			if logLevel, exists := logEntry["level"]; exists {
+				if logLevelStr, ok := logLevel.(string); ok {
+					if strings.ToLower(logLevelStr) != strings.ToLower(level) {
+						return false
+					}
+				}
+			}
+		} else {
+			// For non-JSON logs, do simple text matching
+			levelLower := strings.ToLower(level)
+			lineLower := strings.ToLower(line)
+			if !strings.Contains(lineLower, levelLower) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // RegisterRoutes registers all upstream server routes
