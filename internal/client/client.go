@@ -263,33 +263,34 @@ func (c *MCPClient) initialize() error {
 
 	c.initialized = true
 
-	// After initialization, fetch available tools and resources
-	if err := c.fetchCapabilities(); err != nil {
-		c.logger.Debug().Err(err).Msg("Failed to fetch capabilities from upstream")
+	// Send the initialized notification to complete the handshake
+	// This tells the server that the client has finished processing the initialize response
+	if err := c.sendInitializedNotification(); err != nil {
+		c.logger.Warn().Err(err).Msg("Failed to send initialized notification")
+		// Don't fail, but log the error
 	}
 
+	// After initialization, fetch available tools and resources
+	c.fetchCapabilities()
 	return nil
 }
 
 // fetchCapabilities fetches tools, resources, and prompts from the upstream server
-func (c *MCPClient) fetchCapabilities() error {
+func (c *MCPClient) fetchCapabilities() {
 	// Fetch tools
 	if err := c.fetchTools(); err != nil {
-		return fmt.Errorf("failed to fetch tools: %w", err)
+		c.logger.Debug().Err(err).Msg("Failed to fetch tools")
 	}
 
 	// Fetch resources
 	if err := c.fetchResources(); err != nil {
-		return fmt.Errorf("failed to fetch resources: %w", err)
+		c.logger.Debug().Err(err).Msg("Failed to fetch resources")
 	}
 
 	// Fetch prompts
 	if err := c.fetchPrompts(); err != nil {
-		// Don't fail if prompts are not supported by upstream
 		c.logger.Debug().Err(err).Msg("No prompts received from upstream")
 	}
-
-	return nil
 }
 
 // fetchTools fetches available tools from the upstream server
@@ -328,6 +329,7 @@ func (c *MCPClient) fetchTools() error {
 		c.tools[name] = &toolCopy
 	}
 
+	c.logger.Debug().Int("total_tools", len(c.tools)).Msg("Successfully fetched tools from upstream")
 	return nil
 }
 
@@ -365,13 +367,13 @@ func (c *MCPClient) fetchResources() error {
 		resourceCopy.URI = uri
 		c.resources[uri] = &resourceCopy
 	}
-
+	c.logger.Debug().Int("total_resources", len(c.resources)).Msg("Successfully fetched resources from upstream")
 	return nil
 }
 
 // fetchPrompts fetches available prompts from the upstream server
 func (c *MCPClient) fetchPrompts() error {
-	response, err := c.sendRequest("prompts/list", nil)
+	response, err := c.sendRequest("prompts/list", map[string]interface{}{})
 	if err != nil {
 		return err
 	}
@@ -403,7 +405,7 @@ func (c *MCPClient) fetchPrompts() error {
 		promptCopy.Name = name
 		c.prompts[name] = &promptCopy
 	}
-
+	c.logger.Debug().Int("total_prompts", len(c.prompts)).Msg("Successfully fetched prompts from upstream")
 	return nil
 }
 
@@ -974,4 +976,35 @@ func (c *MCPClient) GetPrompt(name string, arguments map[string]interface{}) (*t
 	}
 
 	return &promptResp, nil
+}
+
+// sendInitializedNotification sends the "initialized" notification to complete the MCP handshake
+func (c *MCPClient) sendInitializedNotification() error {
+	c.logger.Debug().Msg("Sending initialized notification")
+
+	// Create a simple notification structure
+	notification := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/initialized",
+	}
+
+	data, err := json.Marshal(notification)
+	if err != nil {
+		return fmt.Errorf("failed to marshal initialized notification: %w", err)
+	}
+
+	c.logger.Debug().RawJSON("notification", data).Msg("Sending initialized notification data")
+
+	// Send the notification via stdio (no response expected)
+	if c.stdin != nil {
+		if _, err := c.stdin.Write(data); err != nil {
+			return fmt.Errorf("failed to write initialized notification: %w", err)
+		}
+		if _, err := c.stdin.Write([]byte("\n")); err != nil {
+			return fmt.Errorf("failed to write newline after initialized notification: %w", err)
+		}
+	}
+
+	c.logger.Debug().Msg("Initialized notification sent successfully")
+	return nil
 }
