@@ -28,6 +28,7 @@ import {
   MenuItem,
   SelectChangeEvent,
   Snackbar,
+  InputAdornment,
 } from '@mui/material';
 import {
   Storage,
@@ -35,6 +36,7 @@ import {
   Edit,
   Delete,
   ContentCopy,
+  Search,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -65,6 +67,8 @@ interface CuratedServersProps {
 
 export const CuratedServers: React.FC<CuratedServersProps> = ({ adminMode = false }) => {
   const [servers, setServers] = useState<CuratedServer[]>([]);
+  const [filteredServers, setFilteredServers] = useState<CuratedServer[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [openDialog, setOpenDialog] = useState(false);
@@ -84,6 +88,18 @@ export const CuratedServers: React.FC<CuratedServersProps> = ({ adminMode = fals
   useEffect(() => {
     fetchCuratedServers();
   }, []);
+
+  useEffect(() => {
+    // Filter servers based on search term
+    if (searchTerm.trim() === '') {
+      setFilteredServers(servers);
+    } else {
+      const filtered = servers.filter(server =>
+        server.name.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setFilteredServers(filtered);
+    }
+  }, [searchTerm, servers]);
 
   const fetchCuratedServers = async () => {
     try {
@@ -320,16 +336,34 @@ export const CuratedServers: React.FC<CuratedServersProps> = ({ adminMode = fals
             )}
           </Box>
 
+          {/* Search Field */}
+          <Box sx={{ mb: 2 }}>
+            <TextField
+              fullWidth
+              placeholder="Search servers by name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search />
+                  </InputAdornment>
+                ),
+              }}
+              size="small"
+            />
+          </Box>
+
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
             </Alert>
           )}
 
-          {servers.length === 0 ? (
+          {filteredServers.length === 0 ? (
             <Box textAlign="center" py={3}>
               <Typography variant="body2" color="textSecondary">
-                No curated servers available.
+                {searchTerm ? 'No servers found matching your search.' : 'No curated servers available.'}
               </Typography>
             </Box>
           ) : (
@@ -345,7 +379,7 @@ export const CuratedServers: React.FC<CuratedServersProps> = ({ adminMode = fals
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {servers.map((server) => (
+                  {filteredServers.map((server) => (
                     <TableRow key={server.id}>
                       <TableCell>
                         <Typography variant="body2" fontWeight="medium">

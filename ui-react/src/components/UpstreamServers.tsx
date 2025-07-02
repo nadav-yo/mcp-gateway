@@ -732,7 +732,7 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
             </Box>
             <Box display="flex" alignItems="center" gap={1}>
               <Typography variant="body2" color="textSecondary">
-                {filteredServers.length} servers
+                {filteredServers.length}/{servers.length} servers
               </Typography>
               {adminMode && (
                 <Button
