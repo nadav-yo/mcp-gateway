@@ -11,7 +11,7 @@ class TokenManager {
         
         try {
             // Add cache busting parameter
-            const response = await this.adminPanel.makeAuthenticatedRequest(`/auth/tokens?_=${new Date().getTime()}`);
+            const response = await this.adminPanel.makeAuthenticatedRequest(`/api/auth/tokens?_=${new Date().getTime()}`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${await response.text()}`);
             }
@@ -74,7 +74,7 @@ class TokenManager {
         }
         
         try {
-            const response = await this.adminPanel.makeAuthenticatedRequest('/auth/tokens', {
+            const response = await this.adminPanel.makeAuthenticatedRequest('/api/auth/tokens', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -124,7 +124,7 @@ class TokenManager {
         
         try {
             console.log('Revoking token ID:', tokenId);
-            const response = await this.adminPanel.makeAuthenticatedRequest(`/auth/tokens/revoke?id=${tokenId}`, {
+            const response = await this.adminPanel.makeAuthenticatedRequest(`/api/auth/tokens/revoke?id=${tokenId}`, {
                 method: 'DELETE'
             });
             

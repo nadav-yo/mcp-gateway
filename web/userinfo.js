@@ -11,7 +11,7 @@ class UserInfoManager {
         if (!token) return false;
         
         try {
-            const response = await fetch('/auth/me', {
+            const response = await fetch('/api/auth/me', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -58,7 +58,7 @@ class UserInfoManager {
         // Call server-side logout to revoke token
         if (token) {
             try {
-                await fetch('/auth/logout', {
+                await fetch('/api/auth/logout', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,

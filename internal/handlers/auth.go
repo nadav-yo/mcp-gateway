@@ -577,9 +577,11 @@ func (h *AuthHandler) AdminMiddleware(next http.Handler) http.Handler {
 // RegisterRoutes registers authentication routes
 func (h *AuthHandler) RegisterRoutes(router *mux.Router) {
 	// Public routes (no authentication required)
-	router.HandleFunc("/auth/login", h.HandleLogin).Methods("POST")
+	// Support both old and new paths for backward compatibility
+	router.HandleFunc("/auth/login", h.HandleLogin).Methods("POST")     // Old UI
+	router.HandleFunc("/api/auth/login", h.HandleLogin).Methods("POST") // New React UI
 
-	// Protected routes (authentication required)
+	// Protected routes (authentication required) - old paths
 	authRouter := router.PathPrefix("/auth").Subrouter()
 	authRouter.Use(h.AuthMiddleware)
 	authRouter.HandleFunc("/me", h.HandleMe).Methods("GET")
@@ -588,6 +590,16 @@ func (h *AuthHandler) RegisterRoutes(router *mux.Router) {
 	authRouter.HandleFunc("/tokens", h.HandleCreateToken).Methods("POST")
 	authRouter.HandleFunc("/tokens", h.HandleListTokens).Methods("GET")
 	authRouter.HandleFunc("/tokens/revoke", h.HandleRevokeToken).Methods("DELETE")
+
+	// Protected routes (authentication required) - new paths
+	apiAuthRouter := router.PathPrefix("/api/auth").Subrouter()
+	apiAuthRouter.Use(h.AuthMiddleware)
+	apiAuthRouter.HandleFunc("/me", h.HandleMe).Methods("GET")
+	apiAuthRouter.HandleFunc("/logout", h.HandleLogout).Methods("POST")
+	apiAuthRouter.HandleFunc("/change-password", h.HandleChangePassword).Methods("POST")
+	apiAuthRouter.HandleFunc("/tokens", h.HandleCreateToken).Methods("POST")
+	apiAuthRouter.HandleFunc("/tokens", h.HandleListTokens).Methods("GET")
+	apiAuthRouter.HandleFunc("/tokens/revoke", h.HandleRevokeToken).Methods("DELETE")
 }
 
 // RegisterAdminRoutes registers admin-only user management routes

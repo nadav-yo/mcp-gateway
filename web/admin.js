@@ -171,7 +171,7 @@ class AdminPanel {
 
     async checkAuth() {
         try {
-            const response = await this.makeAuthenticatedRequest('/auth/tokens');
+            const response = await this.makeAuthenticatedRequest('/api/auth/tokens');
             if (response.ok) {
                 this.showAdminPanel(true);
                 if (this.authEnabled && this.tokenManager) {

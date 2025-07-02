@@ -11,26 +11,26 @@ import (
 
 // UpstreamServerRecord represents an upstream server record in the database
 type UpstreamServerRecord struct {
-	ID              int64                 `json:"id" db:"id"`
-	Name            string                `json:"name" db:"name"`
-	URL             string                `json:"url" db:"url"`
-	Command         []string              `json:"command" db:"command"`         // Will be JSON marshaled for stdio servers
-	Type            string                `json:"type" db:"type"`
-	Headers         map[string]string     `json:"headers" db:"headers"` // Will be JSON marshaled
-	Timeout         string                `json:"timeout" db:"timeout"`
-	Enabled         bool                  `json:"enabled" db:"enabled"`
-	Prefix          string                `json:"prefix" db:"prefix"`
-	Description     string                `json:"description" db:"description"`
-	AuthType        string                `json:"auth_type" db:"auth_type"`           // bearer, basic, api-key
-	AuthToken       string                `json:"auth_token" db:"auth_token"`         // Encrypted bearer token
-	AuthUsername    string                `json:"auth_username" db:"auth_username"`   // Username for basic auth
-	AuthPassword    string                `json:"auth_password" db:"auth_password"`   // Encrypted password for basic auth
-	AuthAPIKey      string                `json:"auth_api_key" db:"auth_api_key"`     // Encrypted API key
-	AuthHeaderName  string                `json:"auth_header_name" db:"auth_header_name"` // Custom header name for API key
-	CreatedAt       time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time             `json:"updated_at" db:"updated_at"`
-	LastSeen        *time.Time            `json:"last_seen" db:"last_seen"`
-	Status          string                `json:"status" db:"status"` // connected, disconnected, error
+	ID             int64             `json:"id" db:"id"`
+	Name           string            `json:"name" db:"name"`
+	URL            string            `json:"url" db:"url"`
+	Command        []string          `json:"command" db:"command"` // Will be JSON marshaled for stdio servers
+	Type           string            `json:"type" db:"type"`
+	Headers        map[string]string `json:"headers" db:"headers"` // Will be JSON marshaled
+	Timeout        string            `json:"timeout" db:"timeout"`
+	Enabled        bool              `json:"enabled" db:"enabled"`
+	Prefix         string            `json:"prefix" db:"prefix"`
+	Description    string            `json:"description" db:"description"`
+	AuthType       string            `json:"auth_type" db:"auth_type"`               // bearer, basic, api-key
+	AuthToken      string            `json:"auth_token" db:"auth_token"`             // Encrypted bearer token
+	AuthUsername   string            `json:"auth_username" db:"auth_username"`       // Username for basic auth
+	AuthPassword   string            `json:"auth_password" db:"auth_password"`       // Encrypted password for basic auth
+	AuthAPIKey     string            `json:"auth_api_key" db:"auth_api_key"`         // Encrypted API key
+	AuthHeaderName string            `json:"auth_header_name" db:"auth_header_name"` // Custom header name for API key
+	CreatedAt      time.Time         `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at" db:"updated_at"`
+	LastSeen       *time.Time        `json:"last_seen" db:"last_seen"`
+	Status         string            `json:"status" db:"status"` // connected, disconnected, error
 }
 
 // CreateUpstreamServer creates a new upstream server
@@ -294,7 +294,15 @@ func (db *DB) ListUpstreamServersForConnection(enabledOnly bool) ([]*UpstreamSer
 
 	query += " ORDER BY name"
 
-	rows, err := db.conn.Query(query, args...)
+	var rows *sql.Rows
+	var err error
+
+	// Use retry logic for this critical startup operation
+	err = db.retryOnBusy(func() error {
+		rows, err = db.conn.Query(query, args...)
+		return err
+	}, 3)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to list upstream servers: %w", err)
 	}
@@ -420,7 +428,7 @@ func (db *DB) UpdateUpstreamServerStatus(id int64, status string) error {
 
 		_, err := db.conn.Exec(query, status, id)
 		return err
-	}, 5)
+	}, 3)
 
 	if err != nil {
 		return fmt.Errorf("failed to update upstream server status: %w", err)

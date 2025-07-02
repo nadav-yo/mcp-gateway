@@ -212,7 +212,7 @@ func (db *DB) DeleteUser(id int64) error {
 // GetToken retrieves and validates a token
 func (db *DB) GetToken(tokenValue string) (*TokenRecord, error) {
 	var token TokenRecord
-	
+
 	err := db.retryOnBusy(func() error {
 		query := `
 		SELECT id, token, user_id, username, description, expires_at, created_at, last_used, is_active, is_internal
@@ -271,7 +271,9 @@ func (db *DB) DeleteToken(tokenValue string) error {
 // initializeDefaultUser creates a default admin user if no users exist
 func (db *DB) initializeDefaultUser() error {
 	var count int
-	err := db.conn.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	err := db.retryOnBusy(func() error {
+		return db.conn.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	}, 3)
 	if err != nil {
 		return fmt.Errorf("failed to count users: %w", err)
 	}
@@ -371,13 +373,13 @@ func (db *DB) ValidateToken(token string) (*TokenRecord, error) {
 			// Use a separate goroutine with retry logic for last_used updates
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			
+
 			err := db.retryOnBusy(func() error {
 				query := `UPDATE tokens SET last_used = CURRENT_TIMESTAMP WHERE token = ?`
 				_, err := db.conn.ExecContext(ctx, query, token)
 				return err
 			}, 3)
-			
+
 			if err != nil {
 				db_logger := logger.GetLoggerWithContext(map[string]interface{}{
 					"error": err,

@@ -28,8 +28,8 @@ func New(dbPath string) (*DB, error) {
 	}
 
 	// Configure connection pool for better concurrency handling
-	conn.SetMaxOpenConns(10)                 // Reduce concurrent connections to avoid locking
-	conn.SetMaxIdleConns(3)                  // Keep fewer idle connections
+	conn.SetMaxOpenConns(5)                  // Allow multiple connections for better concurrency
+	conn.SetMaxIdleConns(3)                  // Keep some idle connections
 	conn.SetConnMaxLifetime(5 * time.Minute) // Rotate connections regularly
 
 	// Test the connection
@@ -182,7 +182,73 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
+// Ping checks if the database connection is healthy
+func (db *DB) Ping() error {
+	return db.conn.Ping()
+}
+
+// HealthCheck performs a comprehensive health check of the database
+func (db *DB) HealthCheck() error {
+	// Test basic connectivity
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("database ping failed: %w", err)
+	}
+
+	// Test a simple query
+	var result int
+	if err := db.conn.QueryRow("SELECT 1").Scan(&result); err != nil {
+		return fmt.Errorf("database query test failed: %w", err)
+	}
+
+	return nil
+}
+
+// GetDatabaseStats returns SQLite performance statistics
+func (db *DB) GetDatabaseStats() (map[string]interface{}, error) {
+	stats := make(map[string]interface{})
+
+	// Get connection pool stats
+	stats["max_open_connections"] = db.conn.Stats().MaxOpenConnections
+	stats["open_connections"] = db.conn.Stats().OpenConnections
+	stats["in_use"] = db.conn.Stats().InUse
+	stats["idle"] = db.conn.Stats().Idle
+
+	// Get SQLite-specific stats
+	var cacheSize, pageSize, pageCount int
+	var busyTimeout int
+
+	// Get cache size
+	if err := db.conn.QueryRow("PRAGMA cache_size").Scan(&cacheSize); err == nil {
+		stats["cache_size"] = cacheSize
+	}
+
+	// Get page size
+	if err := db.conn.QueryRow("PRAGMA page_size").Scan(&pageSize); err == nil {
+		stats["page_size"] = pageSize
+	}
+
+	// Get page count
+	if err := db.conn.QueryRow("PRAGMA page_count").Scan(&pageCount); err == nil {
+		stats["page_count"] = pageCount
+		stats["database_size_bytes"] = pageSize * pageCount
+	}
+
+	// Get busy timeout
+	if err := db.conn.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err == nil {
+		stats["busy_timeout_ms"] = busyTimeout
+	}
+
+	// Get journal mode
+	var journalMode string
+	if err := db.conn.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err == nil {
+		stats["journal_mode"] = journalMode
+	}
+
+	return stats, nil
+}
+
 // retryOnBusy executes a database operation with retry logic for SQLITE_BUSY errors
+// This should only be used for write operations that might conflict
 func (db *DB) retryOnBusy(operation func() error, maxRetries int) error {
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
@@ -191,20 +257,17 @@ func (db *DB) retryOnBusy(operation func() error, maxRetries int) error {
 			return nil
 		}
 
-		// Check if it's a SQLITE_BUSY error or database locked error
+		// Check if it's a SQLite busy/locked error
 		errStr := err.Error()
 		if strings.Contains(errStr, "SQLITE_BUSY") ||
-			strings.Contains(errStr, "database is locked") ||
-			strings.Contains(errStr, "locked") {
+			strings.Contains(errStr, "database is locked") {
 			lastErr = err
-			// Exponential backoff with jitter
-			backoff := time.Duration(i+1) * 100 * time.Millisecond
-			if i > 2 {
-				backoff = time.Duration(i-1) * 250 * time.Millisecond
+			// Simple exponential backoff
+			backoff := time.Duration(1<<uint(i)) * 10 * time.Millisecond // 10ms, 20ms, 40ms...
+			if backoff > 500*time.Millisecond {
+				backoff = 500 * time.Millisecond
 			}
-			// Add some randomness to prevent thundering herd
-			jitter := time.Duration(time.Now().UnixNano()%50) * time.Millisecond
-			time.Sleep(backoff + jitter)
+			time.Sleep(backoff)
 			continue
 		}
 
@@ -212,6 +275,36 @@ func (db *DB) retryOnBusy(operation func() error, maxRetries int) error {
 		return err
 	}
 	return fmt.Errorf("operation failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// retryOnBusyWithTx executes a database operation within a transaction with retry logic
+func (db *DB) retryOnBusyWithTx(operation func(*sql.Tx) error, maxRetries int) error {
+	return db.retryOnBusy(func() error {
+		tx, err := db.conn.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+
+		defer func() {
+			if p := recover(); p != nil {
+				tx.Rollback()
+				panic(p)
+			}
+		}()
+
+		if err := operation(tx); err != nil {
+			if rbErr := tx.Rollback(); rbErr != nil {
+				return fmt.Errorf("operation failed: %w, rollback failed: %v", err, rbErr)
+			}
+			return err
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		return nil
+	}, maxRetries)
 }
 
 // runMigrations handles database schema migrations

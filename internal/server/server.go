@@ -29,6 +29,12 @@ const (
 	UIUserPath           = "/ui/user"
 	UIChangePasswordPath = "/ui/change-password"
 
+	// React UI paths
+	ReactUIPath    = "/react"
+	ReactLoginPath = "/react/login"
+	ReactAdminPath = "/react/admin"
+	ReactUserPath  = "/react/user"
+
 	// API paths
 	MCPPath      = "/mcp"
 	MCPHTTPPath  = "/mcp/http"
@@ -44,6 +50,7 @@ const (
 
 	// File paths
 	WebDir             = "web/"
+	ReactUIDir         = "ui-react/build/"
 	LoginHTMLFile      = "web/login.html"
 	ChangePassHTMLFile = "web/change-password.html"
 
@@ -285,6 +292,12 @@ func (s *Server) registerCommonRoutes(r *mux.Router) {
 	r.HandleFunc(UIAdminPath, s.handleAdminPage).Methods("GET")
 	r.HandleFunc(UIUserPath, s.handleUserPage).Methods("GET")
 
+	// React UI routes
+	r.HandleFunc(ReactLoginPath, s.handleReactLogin).Methods("GET")
+	r.HandleFunc(ReactAdminPath, s.handleReactAdmin).Methods("GET")
+	r.HandleFunc(ReactUserPath, s.handleReactUser).Methods("GET")
+	r.PathPrefix(ReactUIPath).HandlerFunc(s.handleReactUI).Methods("GET")
+
 	// API health/info routes
 	r.HandleFunc(HealthPath, s.handleHealth).Methods("GET")
 	r.HandleFunc(InfoPath, s.handleInfo).Methods("GET")
@@ -394,6 +407,124 @@ func (s *Server) handleUserPage(w http.ResponseWriter, r *http.Request) {
 
 	// Serve user page with auth status injected
 	s.serveHTMLWithAuth(w, "web/user.html")
+}
+
+// handleReactUI handles requests to the /react path - serves React UI with routing
+func (s *Server) handleReactUI(w http.ResponseWriter, r *http.Request) {
+	// Remove the /react prefix to get the React route
+	path := strings.TrimPrefix(r.URL.Path, ReactUIPath)
+	if path == "" || path == "/" {
+		path = "/index.html"
+	}
+
+	// Static assets (CSS, JS, images, etc.) should not require authentication
+	isStaticAsset := strings.Contains(path, ".") && (strings.HasPrefix(path, "/static/") ||
+		strings.HasSuffix(path, ".css") ||
+		strings.HasSuffix(path, ".js") ||
+		strings.HasSuffix(path, ".map") ||
+		strings.HasSuffix(path, ".ico") ||
+		strings.HasSuffix(path, ".png") ||
+		strings.HasSuffix(path, ".jpg") ||
+		strings.HasSuffix(path, ".svg") ||
+		strings.HasSuffix(path, ".woff") ||
+		strings.HasSuffix(path, ".woff2") ||
+		strings.HasSuffix(path, ".ttf") ||
+		strings.HasSuffix(path, ".eot"))
+
+	// For React Router, serve index.html for non-static routes
+	if !strings.Contains(path, ".") {
+		path = "/index.html"
+	}
+
+	// Try to serve the file from the React build directory
+	filePath := ReactUIDir + strings.TrimPrefix(path, "/")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// File doesn't exist, serve index.html (for React Router)
+		filePath = ReactUIDir + "index.html"
+	}
+
+	// Check authentication only for non-static assets
+	if !isStaticAsset && s.config.Security.EnableAuth && !s.isAuthenticated(r) {
+		// Not authenticated - redirect to React login
+		http.Redirect(w, r, ReactLoginPath, http.StatusFound)
+		return
+	}
+
+	// Set appropriate content type for static assets
+	if isStaticAsset {
+		if strings.HasSuffix(path, ".css") {
+			w.Header().Set("Content-Type", "text/css")
+		} else if strings.HasSuffix(path, ".js") {
+			w.Header().Set("Content-Type", "application/javascript")
+		} else if strings.HasSuffix(path, ".json") {
+			w.Header().Set("Content-Type", "application/json")
+		} else if strings.HasSuffix(path, ".svg") {
+			w.Header().Set("Content-Type", "image/svg+xml")
+		}
+	}
+
+	// Serve the file
+	http.ServeFile(w, r, filePath)
+}
+
+// handleReactLogin handles requests to the React login page
+func (s *Server) handleReactLogin(w http.ResponseWriter, r *http.Request) {
+	if s.config.Security.EnableAuth {
+		// Check if already authenticated
+		if s.isAuthenticated(r) {
+			// Already logged in - redirect to appropriate page based on role
+			if s.isUserAdmin(r) {
+				http.Redirect(w, r, ReactAdminPath, http.StatusFound)
+			} else {
+				http.Redirect(w, r, ReactUserPath, http.StatusFound)
+			}
+			return
+		}
+	} else {
+		// Auth disabled - redirect to React admin
+		http.Redirect(w, r, ReactAdminPath, http.StatusFound)
+		return
+	}
+
+	// Serve React app index.html
+	http.ServeFile(w, r, ReactUIDir+"index.html")
+}
+
+// handleReactAdmin handles requests to the React admin page
+func (s *Server) handleReactAdmin(w http.ResponseWriter, r *http.Request) {
+	if s.config.Security.EnableAuth {
+		// Check authentication
+		if !s.isAuthenticated(r) {
+			// Not authenticated - redirect to React login
+			http.Redirect(w, r, ReactLoginPath, http.StatusFound)
+			return
+		}
+
+		// Check if user is admin
+		if !s.isUserAdmin(r) {
+			// Authenticated but not admin - redirect to React user page
+			http.Redirect(w, r, ReactUserPath, http.StatusFound)
+			return
+		}
+	}
+
+	// Serve React app index.html
+	http.ServeFile(w, r, ReactUIDir+"index.html")
+}
+
+// handleReactUser handles requests to the React user page
+func (s *Server) handleReactUser(w http.ResponseWriter, r *http.Request) {
+	if s.config.Security.EnableAuth {
+		// Check authentication
+		if !s.isAuthenticated(r) {
+			// Not authenticated - redirect to React login
+			http.Redirect(w, r, ReactLoginPath, http.StatusFound)
+			return
+		}
+	}
+
+	// Serve React app index.html
+	http.ServeFile(w, r, ReactUIDir+"index.html")
 }
 
 // extractToken extracts the authentication token from the request

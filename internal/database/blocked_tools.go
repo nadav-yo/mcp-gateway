@@ -71,14 +71,12 @@ func (db *DB) GetBlockedTool(id int64) (*BlockedToolRecord, error) {
 	FROM blocked_tools WHERE id = ?
 	`
 
+	row := db.conn.QueryRow(query, id)
 	var blockedTool BlockedToolRecord
-	err := db.retryOnBusy(func() error {
-		row := db.conn.QueryRow(query, id)
-		return row.Scan(
-			&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
-			&blockedTool.ToolName, &blockedTool.CreatedAt,
-		)
-	}, 3)
+	err := row.Scan(
+		&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
+		&blockedTool.ToolName, &blockedTool.CreatedAt,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("blocked tool with ID %d not found", id)
@@ -103,31 +101,26 @@ func (db *DB) ListBlockedToolsByServerID(serverID int64, serverType string) ([]*
 	ORDER BY tool_name ASC
 	`
 
-	var blockedTools []*BlockedToolRecord
-	err := db.retryOnBusy(func() error {
-		rows, err := db.conn.Query(query, serverID, serverType)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		// Clear the slice for retry attempts
-		blockedTools = nil
-		for rows.Next() {
-			var blockedTool BlockedToolRecord
-			err := rows.Scan(
-				&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
-				&blockedTool.ToolName, &blockedTool.CreatedAt,
-			)
-			if err != nil {
-				return err
-			}
-			blockedTools = append(blockedTools, &blockedTool)
-		}
-		return rows.Err()
-	}, 3)
+	rows, err := db.conn.Query(query, serverID, serverType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list blocked tools: %w", err)
+	}
+	defer rows.Close()
+
+	var blockedTools []*BlockedToolRecord
+	for rows.Next() {
+		var blockedTool BlockedToolRecord
+		err := rows.Scan(
+			&blockedTool.ID, &blockedTool.ServerID, &blockedTool.Type,
+			&blockedTool.ToolName, &blockedTool.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan blocked tool: %w", err)
+		}
+		blockedTools = append(blockedTools, &blockedTool)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate blocked tools: %w", err)
 	}
 
 	return blockedTools, nil
