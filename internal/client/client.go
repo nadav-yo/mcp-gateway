@@ -45,6 +45,9 @@ type MCPClient struct {
 	// Process synchronization
 	processWait sync.Once
 	processErr  error
+	// For stdio request-response correlation
+	pendingRequests map[int64]chan *types.MCPResponse
+	responseReader  sync.Once
 }
 
 // NewMCPClient creates a new MCP client for the given upstream server
@@ -89,15 +92,16 @@ func NewMCPClientWithID(upstream *types.UpstreamServer, serverID int64) *MCPClie
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		initialized: false,
-		tools:       make(map[string]*types.Tool),
-		resources:   make(map[string]*types.Resource),
-		prompts:     make(map[string]*types.Prompt),
-		requestID:   1,
-		ctx:         ctx,
-		cancel:      cancel,
-		logger:      clientLogger,
-		serverID:    serverID,
+		initialized:     false,
+		tools:           make(map[string]*types.Tool),
+		resources:       make(map[string]*types.Resource),
+		prompts:         make(map[string]*types.Prompt),
+		requestID:       1,
+		ctx:             ctx,
+		cancel:          cancel,
+		logger:          clientLogger,
+		serverID:        serverID,
+		pendingRequests: make(map[int64]chan *types.MCPResponse),
 	}
 }
 
@@ -899,52 +903,29 @@ func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPRespo
 		return nil, fmt.Errorf("failed to write to stdin: %w", err)
 	}
 
-	// Use a channel to receive the response with timeout
-	responseChan := make(chan *types.MCPResponse, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		// Read the response from stdout
-		scanner := bufio.NewScanner(c.stdout)
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				errorChan <- fmt.Errorf("failed to read from stdout: %w", err)
-				return
-			}
-			errorChan <- fmt.Errorf("no response received from process")
-			return
+	// Read the response synchronously
+	scanner := bufio.NewScanner(c.stdout)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("failed to read from stdout: %w", err)
 		}
-
-		responseBytes := scanner.Bytes()
-
-		// Parse the response
-		var response types.MCPResponse
-		if err := json.Unmarshal(responseBytes, &response); err != nil {
-			errorChan <- fmt.Errorf("failed to unmarshal response: %w", err)
-			return
-		}
-
-		responseChan <- &response
-	}()
-
-	// Wait for response with timeout
-	timeout := 30 * time.Second
-	if c.upstream.Timeout != "" {
-		if d, err := time.ParseDuration(c.upstream.Timeout); err == nil {
-			timeout = d
-		}
+		return nil, fmt.Errorf("no response received from process")
 	}
 
-	select {
-	case response := <-responseChan:
-		return response, nil
-	case err := <-errorChan:
-		return nil, err
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("timeout waiting for response from stdio process")
-	case <-c.ctx.Done():
-		return nil, fmt.Errorf("context cancelled")
+	responseBytes := scanner.Bytes()
+
+	// Parse the response
+	var response types.MCPResponse
+	if err := json.Unmarshal(responseBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
+
+	// Verify that the response ID matches the request ID
+	if response.ID != request.ID {
+		return nil, fmt.Errorf("response ID mismatch: expected %v, got %v", request.ID, response.ID)
+	}
+
+	return &response, nil
 }
 
 // GetPrompt calls prompts/get on the upstream server
