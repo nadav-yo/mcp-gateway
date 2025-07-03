@@ -525,6 +525,11 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {lastUpdated && (
+                <Typography variant="body2" color="textSecondary">
+                  Last updated: {lastUpdated.toLocaleString()}
+                </Typography>
+              )}
               <FormControlLabel
                 control={
                   <Switch
@@ -548,46 +553,44 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
           <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
             View logs for the gateway and individual servers. Request logs capture all HTTP requests, while server logs capture individual server events.
           </Typography>
-          {lastUpdated && (
-            <Typography variant="body2" color="textSecondary">
-              Last updated: {lastUpdated.toLocaleString()}
-            </Typography>
-          )}
         </CardContent>
       </Card>
 
       <Box sx={{ display: 'flex', gap: 3, height: '70vh', minHeight: '600px' }}>
         {/* Logs List */}
         <Card sx={{ width: '250px', display: 'flex', flexDirection: 'column' }}>
-          <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <Typography variant="h6" gutterBottom>
+          <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 2 }}>
+            <Typography variant="h6" sx={{ mb: 1, fontSize: '1.1rem' }}>
               Available Logs
             </Typography>
 
             {/* Gateway Logs */}
-            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1, fontWeight: 'bold' }}>
+            <Typography variant="subtitle2" sx={{ mb: 0.5, fontWeight: 'bold', fontSize: '0.8rem' }}>
               Gateway Logs
             </Typography>
-            <List dense sx={{ mb: 2 }}>
+            <List dense sx={{ mb: 1, flexShrink: 0, py: 0 }}>
               {GATEWAY_LOGS.map((gatewayLog) => (
-                <ListItem key={gatewayLog.filename} disablePadding>
+                <ListItem key={gatewayLog.filename} disablePadding sx={{ py: 0 }}>
                   <ListItemButton
                     selected={currentLogType === 'gateway' && currentLogFilename === gatewayLog.filename}
                     onClick={() => loadGatewayLog(gatewayLog.filename)}
+                    sx={{ py: 0.5, px: 1 }}
                   >
                     <ListItemText
                       primary={gatewayLog.name}
                       secondary={gatewayLog.description}
+                      primaryTypographyProps={{ fontSize: '0.85rem' }}
+                      secondaryTypographyProps={{ fontSize: '0.75rem' }}
                     />
                   </ListItemButton>
                 </ListItem>
               ))}
             </List>
 
-            <Divider />
+            <Divider sx={{ flexShrink: 0, my: 1 }} />
 
             {/* Server Logs */}
-            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1, fontWeight: 'bold' }}>
+            <Typography variant="subtitle2" sx={{ mb: 0.5, fontWeight: 'bold', flexShrink: 0, fontSize: '0.8rem' }}>
               Available Server Logs
             </Typography>
             
@@ -600,28 +603,28 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <Search />
+                    <Search sx={{ fontSize: '0.9rem' }} />
                   </InputAdornment>
                 ),
               }}
-              sx={{ mb: 2 }}
+              sx={{ mb: 0.5, flexShrink: 0 }}
               fullWidth
             />
             
             {logsListLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, flexShrink: 0 }}>
                 <CircularProgress size={24} />
               </Box>
             ) : error ? (
-              <Alert severity="error" sx={{ mt: 1 }}>
+              <Alert severity="error" sx={{ mt: 1, flexShrink: 0 }}>
                 Error loading logs: {error}
               </Alert>
             ) : filteredServerLogs.length === 0 ? (
-              <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', py: 2, flexShrink: 0 }}>
                 {serverLogs.length === 0 ? 'No server log files found' : 'No servers match your search'}
               </Typography>
             ) : (
-              <List dense sx={{ flex: 1, overflow: 'auto' }}>
+              <List dense sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 {filteredServerLogs.map((log) => (
                   <ListItem key={`${log.server_id}-${log.filename}`} disablePadding>
                     <ListItemButton
@@ -635,7 +638,7 @@ export const Logs: React.FC<LogsProps> = ({ selectedServerId, selectedServerName
                             <Typography variant="body2" color="textSecondary">
                               ID: {log.server_id} | Size: {formatFileSize(log.size)}
                             </Typography>
-                            <Typography variant="body2" color="textSecondary">
+                            <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.7rem' }}>
                               Modified: {new Date(log.modified).toLocaleString()}
                             </Typography>
                           </Box>

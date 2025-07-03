@@ -2,8 +2,10 @@ package server
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/nadav-yo/mcp-gateway/internal/client"
+	"github.com/nadav-yo/mcp-gateway/internal/database"
 	"github.com/nadav-yo/mcp-gateway/internal/logger"
 	"github.com/nadav-yo/mcp-gateway/pkg/types"
 )
@@ -31,60 +33,75 @@ func (s *Server) connectToUpstreamServersLocked() {
 	}
 	s.logger.Debug().Int("server_count", len(servers)).Msg("Retrieved servers from database")
 
+	// Use WaitGroup to wait for all goroutines to complete
+	var wg sync.WaitGroup
+
 	for _, serverRecord := range servers {
-		upstream := serverRecord.ToUpstreamServer()
+		wg.Add(1)
+		go func(record *database.UpstreamServerRecord) {
+			defer wg.Done()
+			s.connectToSingleUpstreamServer(record)
+		}(serverRecord)
+	}
 
-		// Set status to "starting" for stdio servers since they take time to initialize
-		// Do this outside of mutex to avoid blocking other operations
-		if upstream.Type == "stdio" {
-			s.db.UpdateUpstreamServerStatus(serverRecord.ID, "starting")
-		}
+	// Wait for all server connections to complete
+	wg.Wait()
+}
 
-		mcpClient := client.NewMCPClientWithID(upstream, serverRecord.ID)
+// connectToSingleUpstreamServer connects to a single upstream server and adds it to the server state
+func (s *Server) connectToSingleUpstreamServer(serverRecord *database.UpstreamServerRecord) {
+	upstream := serverRecord.ToUpstreamServer()
 
-		if err := mcpClient.Connect(); err != nil {
-			// Log to server-specific log file
-			logger.GetServerLogger().LogServerEvent(serverRecord.ID, "error", "Failed to connect to upstream server", map[string]interface{}{
-				"error":    err.Error(),
-				"upstream": upstream.Name,
-				"type":     upstream.Type,
-			})
+	// Set status to "starting" for stdio servers since they take time to initialize
+	// Do this outside of mutex to avoid blocking other operations
+	if upstream.Type == "stdio" {
+		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "starting")
+	}
 
-			// Update status in database outside of mutex
-			s.db.UpdateUpstreamServerStatus(serverRecord.ID, "error")
-			continue
-		}
+	mcpClient := client.NewMCPClientWithID(upstream, serverRecord.ID)
 
-		// Now acquire mutex to update server state
-		s.mu.Lock()
-		s.clients[upstream.Name] = mcpClient
-		s.clientsByID[serverRecord.ID] = mcpClient
-
-		// Aggregate tools from this upstream server
-		for name, tool := range mcpClient.GetTools() {
-			s.tools[name] = tool
-		}
-
-		// Aggregate resources from this upstream server
-		for uri, resource := range mcpClient.GetResources() {
-			s.resources[uri] = resource
-		}
-
-		// Aggregate prompts from this upstream server (but don't expose them in gateway API)
-		for name, prompt := range mcpClient.GetPrompts() {
-			s.prompts[name] = prompt
-		}
-		s.mu.Unlock()
-
-		// Update status in database outside of mutex
-		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "connected")
-
-		// Log successful connection to server-specific log file
-		logger.GetServerLogger().LogServerEvent(serverRecord.ID, "info", "Successfully connected to upstream server", map[string]interface{}{
+	if err := mcpClient.Connect(); err != nil {
+		// Log to server-specific log file
+		logger.GetServerLogger().LogServerEvent(serverRecord.ID, "error", "Failed to connect to upstream server", map[string]interface{}{
+			"error":    err.Error(),
 			"upstream": upstream.Name,
 			"type":     upstream.Type,
 		})
+
+		// Update status in database outside of mutex
+		s.db.UpdateUpstreamServerStatus(serverRecord.ID, "error")
+		return
 	}
+
+	// Now acquire mutex to update server state
+	s.mu.Lock()
+	s.clients[upstream.Name] = mcpClient
+	s.clientsByID[serverRecord.ID] = mcpClient
+
+	// Aggregate tools from this upstream server
+	for name, tool := range mcpClient.GetTools() {
+		s.tools[name] = tool
+	}
+
+	// Aggregate resources from this upstream server
+	for uri, resource := range mcpClient.GetResources() {
+		s.resources[uri] = resource
+	}
+
+	// Aggregate prompts from this upstream server (but don't expose them in gateway API)
+	for name, prompt := range mcpClient.GetPrompts() {
+		s.prompts[name] = prompt
+	}
+	s.mu.Unlock()
+
+	// Update status in database outside of mutex
+	s.db.UpdateUpstreamServerStatus(serverRecord.ID, "connected")
+
+	// Log successful connection to server-specific log file
+	logger.GetServerLogger().LogServerEvent(serverRecord.ID, "info", "Successfully connected to upstream server", map[string]interface{}{
+		"upstream": upstream.Name,
+		"type":     upstream.Type,
+	})
 }
 
 // ConnectUpstreamServer connects to a single upstream server by ID

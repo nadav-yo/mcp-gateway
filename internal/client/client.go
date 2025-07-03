@@ -907,7 +907,7 @@ func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPRespo
 
 	// Read responses until we find the one matching our request ID
 	scanner := bufio.NewScanner(c.stdout)
-	
+
 	for {
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
@@ -935,12 +935,11 @@ func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPRespo
 		}
 
 		// Log non-matching responses (could be notifications or responses to other requests)
-		c.logger.Info().
+		c.logger.Debug().
 			RawJSON("response", responseBytes).
 			RawJSON("request", requestBytes).
 			Msg("Received unmatched response from stdio process")
 	}
-	return nil, fmt.Errorf("no matching response found for request ID %d", request.ID)
 }
 
 // GetPrompt calls prompts/get on the upstream server
