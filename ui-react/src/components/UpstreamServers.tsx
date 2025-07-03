@@ -57,6 +57,8 @@ interface UpstreamServer {
   prefix?: string;
   auth_type?: string;
   auth_username?: string;
+  auth_password?: string;
+  auth_token?: string;
   auth_header_name?: string;
   created_at: string;
   updated_at: string;
@@ -100,6 +102,11 @@ interface ServerFormData {
   enabled: boolean;
   prefix: string;
   description: string;
+  auth_type: string;
+  auth_username: string;
+  auth_password: string;
+  auth_token: string;
+  auth_header_name: string;
 }
 
 interface UpstreamServersProps {
@@ -121,6 +128,11 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
     enabled: true,
     prefix: '',
     description: '',
+    auth_type: 'none',
+    auth_username: '',
+    auth_password: '',
+    auth_token: '',
+    auth_header_name: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
@@ -238,6 +250,11 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
         enabled: server.enabled,
         prefix: server.prefix || '',
         description: server.description || '',
+        auth_type: server.auth_type || 'none',
+        auth_username: server.auth_username || '',
+        auth_password: '',
+        auth_token: '',
+        auth_header_name: server.auth_header_name || '',
       });
     } else {
       setEditingServer(null);
@@ -249,6 +266,11 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
         enabled: true,
         prefix: '',
         description: '',
+        auth_type: 'none',
+        auth_username: '',
+        auth_password: '',
+        auth_token: '',
+        auth_header_name: '',
       });
     }
     setOpenDialog(true);
@@ -297,6 +319,21 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
         payload.command = formData.command.split(' ').filter(cmd => cmd.trim() !== '');
       } else {
         payload.url = formData.url;
+        
+        // Add authentication fields for HTTP and WebSocket
+        if (formData.auth_type && formData.auth_type !== 'none') {
+          payload.auth_type = formData.auth_type;
+          
+          if (formData.auth_type === 'bearer' && formData.auth_token) {
+            payload.auth_token = formData.auth_token;
+          } else if (formData.auth_type === 'basic' && formData.auth_username && formData.auth_password) {
+            payload.auth_username = formData.auth_username;
+            payload.auth_password = formData.auth_password;
+          } else if (formData.auth_type === 'api_key' && formData.auth_header_name && formData.auth_token) {
+            payload.auth_header_name = formData.auth_header_name;
+            payload.auth_token = formData.auth_token;
+          }
+        }
       }
 
       const response = await fetch(url, {
@@ -1085,6 +1122,16 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
                 fullWidth
               />
 
+              <TextField
+                label="Description"
+                value={formData.description}
+                onChange={(e) => handleFormChange('description', e.target.value)}
+                multiline
+                rows={2}
+                fullWidth
+                placeholder="Describe what this server provides..."
+              />
+
               <FormControl fullWidth required>
                 <InputLabel>Server Type</InputLabel>
                 <Select
@@ -1129,15 +1176,105 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
                 helperText="Optional prefix for tools/resources from this server"
               />
 
-              <TextField
-                label="Description"
-                value={formData.description}
-                onChange={(e) => handleFormChange('description', e.target.value)}
-                multiline
-                rows={2}
-                fullWidth
-                placeholder="Describe what this server provides..."
-              />
+              {/* Authentication Section for HTTP and WebSocket */}
+              {formData.type !== 'stdio' && (
+                <>
+                  <Box sx={{ 
+                    borderTop: '1px solid', 
+                    borderColor: 'divider', 
+                    pt: 2, 
+                    mt: 1,
+                    position: 'relative',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2
+                  }}>
+                    <Typography 
+                      variant="subtitle2" 
+                      sx={{ 
+                        mb: 2, 
+                        fontWeight: 600,
+                        color: 'text.secondary',
+                        fontSize: '0.875rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}
+                    >
+                      Authentication Settings
+                    </Typography>
+                    
+                    <FormControl fullWidth>
+                      <InputLabel>Authentication Type</InputLabel>
+                      <Select
+                        value={formData.auth_type}
+                        onChange={(e) => handleFormChange('auth_type', e.target.value)}
+                        label="Authentication Type"
+                      >
+                        <MenuItem value="none">No Authentication</MenuItem>
+                        <MenuItem value="bearer">Bearer Token</MenuItem>
+                        <MenuItem value="basic">Username & Password</MenuItem>
+                        <MenuItem value="api_key">API Key</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                  {formData.auth_type === 'bearer' && (
+                    <TextField
+                      label="Bearer Token"
+                      value={formData.auth_token}
+                      onChange={(e) => handleFormChange('auth_token', e.target.value)}
+                      fullWidth
+                      type="password"
+                      placeholder="Enter bearer token"
+                      helperText="Token will be sent as 'Authorization: Bearer <token>'"
+                    />
+                  )}
+
+                  {formData.auth_type === 'basic' && (
+                    <>
+                      <TextField
+                        label="Username"
+                        value={formData.auth_username}
+                        onChange={(e) => handleFormChange('auth_username', e.target.value)}
+                        fullWidth
+                        placeholder="Enter username"
+                      />
+                      <TextField
+                        label="Password"
+                        value={formData.auth_password}
+                        onChange={(e) => handleFormChange('auth_password', e.target.value)}
+                        fullWidth
+                        type="password"
+                        placeholder="Enter password"
+                        helperText="Will be sent as Basic Authentication"
+                      />
+                    </>
+                  )}
+
+                  {formData.auth_type === 'api_key' && (
+                    <>
+                      <TextField
+                        label="Header Name"
+                        value={formData.auth_header_name}
+                        onChange={(e) => handleFormChange('auth_header_name', e.target.value)}
+                        fullWidth
+                        placeholder="e.g., X-API-Key, Authorization"
+                        helperText="The header name for the API key"
+                      />
+                      <TextField
+                        label="API Key"
+                        value={formData.auth_token}
+                        onChange={(e) => handleFormChange('auth_token', e.target.value)}
+                        fullWidth
+                        type="password"
+                        placeholder="Enter API key"
+                        helperText="The API key value"
+                      />
+                    </>
+                  )}
+                  </Box>
+                </>
+              )}
+
             </Box>
           </DialogContent>
           <DialogActions>

@@ -421,6 +421,10 @@ func (s *MCPServer) routeToolCall(tool *types.Tool, name string, arguments map[s
 					if s.mcpLogger != nil {
 						s.mcpLogger.Debug("mcp-local", fmt.Sprintf("Tool executed successfully: %s (upstream: %s)", name, clientName))
 					}
+					// Ensure Content is never nil to prevent "content is not iterable" errors
+					if result.Content == nil {
+						result.Content = []types.Content{}
+					}
 					return *result
 				} else {
 					if s.mcpLogger != nil {

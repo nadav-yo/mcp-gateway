@@ -607,6 +607,11 @@ func (c *MCPClient) CallTool(name string, arguments map[string]interface{}) (*ty
 		return nil, fmt.Errorf("failed to parse tool response: %w", err)
 	}
 
+	// Ensure Content is never nil to prevent "content is not iterable" errors
+	if toolResp.Content == nil {
+		toolResp.Content = []types.Content{}
+	}
+
 	return &toolResp, nil
 }
 
