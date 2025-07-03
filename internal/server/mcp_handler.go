@@ -256,7 +256,7 @@ func (s *Server) handlePromptsGet(req *types.MCPRequest) *types.MCPResponse {
 	}
 
 	s.mu.RLock()
-	prompt, exists := s.prompts[getReq.Name]
+	_, exists := s.prompts[getReq.Name]
 	s.mu.RUnlock()
 
 	if !exists {
@@ -272,7 +272,7 @@ func (s *Server) handlePromptsGet(req *types.MCPRequest) *types.MCPResponse {
 	}
 
 	// Route the prompt get to the appropriate upstream server
-	result := s.routePromptGet(prompt, getReq.Name, getReq.Arguments)
+	result := s.routePromptGet(getReq.Name, getReq.Arguments)
 
 	return &types.MCPResponse{
 		JSONRPC: "2.0",

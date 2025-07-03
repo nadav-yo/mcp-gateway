@@ -243,7 +243,7 @@ func (s *Server) handleGenericLog(w http.ResponseWriter, r *http.Request) {
 
 	// Handle streaming for large files
 	if query.Get("stream") == "true" {
-		s.streamLogFile(w, r, logPath, search, level)
+		s.streamLogFile(w, logPath, search, level)
 		return
 	}
 
@@ -409,7 +409,7 @@ func (s *Server) handleCuratedServers(w http.ResponseWriter, r *http.Request) {
 }
 
 // streamLogFile streams log content in chunks for large files
-func (s *Server) streamLogFile(w http.ResponseWriter, r *http.Request, logPath, search, level string) {
+func (s *Server) streamLogFile(w http.ResponseWriter, logPath, search, level string) {
 	file, err := os.Open(logPath)
 	if err != nil {
 		http.Error(w, "Failed to open log file", http.StatusInternalServerError)
@@ -598,7 +598,7 @@ func (s *Server) matchesFilter(line, search, level string) bool {
 		if err := json.Unmarshal([]byte(line), &logEntry); err == nil {
 			if logLevel, exists := logEntry["level"]; exists {
 				if logLevelStr, ok := logLevel.(string); ok {
-					if strings.ToLower(logLevelStr) != strings.ToLower(level) {
+					if !strings.EqualFold(logLevelStr, level) {
 						return false
 					}
 				}

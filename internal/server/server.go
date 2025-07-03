@@ -23,10 +23,10 @@ import (
 // URL path constants
 const (
 	// UI paths
-	UIPath               = "/ui"
-	UIAdminPath          = "/ui/admin"
-	UILoginPath          = "/ui/login"
-	UIUserPath           = "/ui/user"
+	UIPath      = "/ui"
+	UIAdminPath = "/ui/admin"
+	UILoginPath = "/ui/login"
+	UIUserPath  = "/ui/user"
 
 	// API paths
 	MCPPath      = "/mcp"
@@ -42,7 +42,7 @@ const (
 	LogsPath     = "/api/logs/{filename}"
 
 	// File paths
-	ReactUIDir         = "ui-react/build/"
+	ReactUIDir = "ui-react/build/"
 
 	// Token constants
 	TokenCookieName = "mcp_token"
@@ -276,7 +276,6 @@ func (s *Server) registerAdminRoutes(router *mux.Router) {
 // registerCommonRoutes registers routes available to all users
 func (s *Server) registerCommonRoutes(r *mux.Router) {
 
-
 	// React UI routes
 	r.HandleFunc(UILoginPath, s.handleReactLogin).Methods("GET")
 	r.HandleFunc(UIAdminPath, s.handleReactAdmin).Methods("GET")
@@ -345,7 +344,7 @@ func (s *Server) handleReactUI(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "image/svg+xml")
 		}
 	}
-	
+
 	// Also set content type for manifest.json and other JSON files even if not in static assets check
 	if strings.HasSuffix(path, ".json") {
 		w.Header().Set("Content-Type", "application/json")
@@ -728,33 +727,8 @@ func (s *Server) invalidateBlockedResourcesCache() {
 	s.logger.Debug().Msg("Blocked resources cache invalidated")
 }
 
-// serveHTMLWithAuth serves an HTML file with auth status injected
-func (s *Server) serveHTMLWithAuth(w http.ResponseWriter, filePath string) {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		s.logger.Error().Err(err).Str("file", filePath).Msg("Failed to read HTML file")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Inject auth status
-	authEnabled := "false"
-	if s.config.Security.EnableAuth {
-		authEnabled = "true"
-	}
-
-	htmlContent := string(content)
-	authScript := fmt.Sprintf(`    <script>window.AUTH_ENABLED = %s;</script>
-</head>`, authEnabled)
-	htmlContent = strings.Replace(htmlContent, "</head>", authScript, 1)
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(htmlContent))
-}
-
 // routePromptGet routes a prompt get request to the appropriate upstream server
-func (s *Server) routePromptGet(prompt *types.Prompt, name string, arguments map[string]interface{}) types.GetPromptResponse {
+func (s *Server) routePromptGet(name string, arguments map[string]interface{}) types.GetPromptResponse {
 	// Determine which upstream server this prompt belongs to
 	s.mu.RLock()
 	defer s.mu.RUnlock()
