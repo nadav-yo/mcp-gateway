@@ -354,7 +354,7 @@ func (s *Server) readResource(resource *types.Resource) types.ResourceContent {
 }
 
 // errorResponse creates an error response
-func (s *Server) errorResponse(id interface{}, code int, message, data string) *types.MCPResponse {
+func (s *Server) errorResponse(id int64, code int, message, data string) *types.MCPResponse {
 	return &types.MCPResponse{
 		JSONRPC: "2.0",
 		ID:      id,

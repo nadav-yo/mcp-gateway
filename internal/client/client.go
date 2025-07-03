@@ -45,9 +45,8 @@ type MCPClient struct {
 	// Process synchronization
 	processWait sync.Once
 	processErr  error
-	// For stdio request-response correlation
-	pendingRequests map[int64]chan *types.MCPResponse
-	responseReader  sync.Once
+	// Stdio request serialization
+	stdioMu sync.Mutex
 }
 
 // NewMCPClient creates a new MCP client for the given upstream server
@@ -92,16 +91,15 @@ func NewMCPClientWithID(upstream *types.UpstreamServer, serverID int64) *MCPClie
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		initialized:     false,
-		tools:           make(map[string]*types.Tool),
-		resources:       make(map[string]*types.Resource),
-		prompts:         make(map[string]*types.Prompt),
-		requestID:       1,
-		ctx:             ctx,
-		cancel:          cancel,
-		logger:          clientLogger,
-		serverID:        serverID,
-		pendingRequests: make(map[int64]chan *types.MCPResponse),
+		initialized: false,
+		tools:       make(map[string]*types.Tool),
+		resources:   make(map[string]*types.Resource),
+		prompts:     make(map[string]*types.Prompt),
+		requestID:   1,
+		ctx:         ctx,
+		cancel:      cancel,
+		logger:      clientLogger,
+		serverID:    serverID,
 	}
 }
 
@@ -891,6 +889,10 @@ func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPRespo
 		return nil, fmt.Errorf("stdio process not connected")
 	}
 
+	// Serialize all stdio operations to prevent race conditions
+	c.stdioMu.Lock()
+	defer c.stdioMu.Unlock()
+
 	// Marshal the request to JSON
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
@@ -903,29 +905,42 @@ func (c *MCPClient) sendStdioRequest(request *types.MCPRequest) (*types.MCPRespo
 		return nil, fmt.Errorf("failed to write to stdin: %w", err)
 	}
 
-	// Read the response synchronously
+	// Read responses until we find the one matching our request ID
 	scanner := bufio.NewScanner(c.stdout)
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return nil, fmt.Errorf("failed to read from stdout: %w", err)
+	
+	for {
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return nil, fmt.Errorf("failed to read from stdout: %w", err)
+			}
+			return nil, fmt.Errorf("no response received from process")
 		}
-		return nil, fmt.Errorf("no response received from process")
+
+		responseBytes := scanner.Bytes()
+
+		// Parse the response
+		var response types.MCPResponse
+		if err := json.Unmarshal(responseBytes, &response); err != nil {
+			// Log invalid responses but continue reading
+			c.logger.Debug().
+				Str("raw_response", string(responseBytes)).
+				Err(err).
+				Msg("Failed to parse response, continuing to read")
+			continue
+		}
+
+		// Check if this response matches our request ID
+		if response.ID == request.ID {
+			return &response, nil
+		}
+
+		// Log non-matching responses (could be notifications or responses to other requests)
+		c.logger.Info().
+			RawJSON("response", responseBytes).
+			RawJSON("request", requestBytes).
+			Msg("Received unmatched response from stdio process")
 	}
-
-	responseBytes := scanner.Bytes()
-
-	// Parse the response
-	var response types.MCPResponse
-	if err := json.Unmarshal(responseBytes, &response); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	// Verify that the response ID matches the request ID
-	if response.ID != request.ID {
-		return nil, fmt.Errorf("response ID mismatch: expected %v, got %v", request.ID, response.ID)
-	}
-
-	return &response, nil
+	return nil, fmt.Errorf("no matching response found for request ID %d", request.ID)
 }
 
 // GetPrompt calls prompts/get on the upstream server

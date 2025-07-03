@@ -107,7 +107,7 @@ func main() {
 		var request types.MCPRequest
 		if err := json.Unmarshal([]byte(line), &request); err != nil {
 			log.Error().Err(err).Str("input", line).Msg("Failed to parse JSON request")
-			writeErrorResponse(nil, -32700, "Parse error", err.Error())
+			writeErrorResponse(-1, -32700, "Parse error", err.Error())
 			continue
 		}
 
@@ -142,7 +142,7 @@ func main() {
 }
 
 // writeErrorResponse writes an error response to stdout
-func writeErrorResponse(id interface{}, code int, message, data string) {
+func writeErrorResponse(id int64, code int, message, data string) {
 	response := &types.MCPResponse{
 		JSONRPC: "2.0",
 		ID:      id,

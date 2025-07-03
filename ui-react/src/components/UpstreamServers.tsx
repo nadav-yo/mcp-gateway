@@ -846,6 +846,14 @@ export const UpstreamServers: React.FC<UpstreamServersProps> = ({ adminMode = fa
                           variant="outlined"
                           color={server.type === 'stdio' ? 'primary' : server.type === 'http' ? 'secondary' : 'default'}
                         />
+                        {server.prefix && (
+                          <Chip 
+                            label={`Prefix: ${server.prefix}`}
+                            size="small" 
+                            variant="outlined"
+                            color="info"
+                          />
+                        )}
                         <Chip 
                           label={`${server.tool_details?.length || 0} Tools`}
                           size="small" 

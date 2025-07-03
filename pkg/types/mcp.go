@@ -5,7 +5,7 @@ import "encoding/json"
 // MCPRequest represents a generic MCP request
 type MCPRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id,omitempty"`
+	ID      int64     `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
@@ -13,7 +13,7 @@ type MCPRequest struct {
 // MCPResponse represents a generic MCP response
 type MCPResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id,omitempty"`
+	ID      int64 `json:"id,omitempty"`
 	Result  interface{} `json:"result,omitempty"`
 	Error   *MCPError   `json:"error,omitempty"`
 }
@@ -110,7 +110,7 @@ type ToolListResponse struct {
 // CallToolRequest represents a tool call request
 type CallToolRequest struct {
 	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments,omitempty"`
+	Arguments map[string]interface{} `json:"arguments"`
 }
 
 // CallToolResponse represents a tool call response
